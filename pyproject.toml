@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chainsolvers"
+version = "0.1.0"
+description = "Solvers for placing points along chains (e.g. location chains, molecule chains)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Your Name", email = "your@email.com" }]
+dependencies = ["numpy", "frozendict"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chainsolvers*"]
