@@ -2,15 +2,16 @@ import numpy as np
 from typing import Tuple, Optional, Any
 from dataclasses import dataclass
 from frozendict import frozendict
+
 from chainsolvers.locations import Locations
 from chainsolvers.types import Segment
 
 
 @dataclass(slots=True)
 class CarlaConfig:
-    number_of_branches: int = 30
-    candidates_complex_case: int = 50
-    candidates_two_leg_case: int = 20
+    number_of_branches: int = 50
+    candidates_complex_case: int = 100
+    candidates_two_leg_case: int = 100
     anchor_strategy: str = "lower_middle"   # {'lower_middle','upper_middle','start','end'}
     selection_strategy_complex_case: str = "top_n_spatial_downsample"
     selection_strategy_two_leg_case: str = "top_n"
@@ -68,11 +69,8 @@ class Carla:
         stats: Optional[Any] = None,
         **params: Any,
     ):
-
-        base = CarlaConfig()
         # allow overrides via loose params
-        merged = {**base.__dict__, **params}
-        config = CarlaConfig(**merged)
+        config = CarlaConfig(**params)
 
         self.locations = locations
         self.rng = rng
@@ -193,7 +191,7 @@ class Carla:
                 scorer=self.scorer,
                 act_type=segment[anchor_idx].to_act_type,
                 start_coord=segment[0].from_location,
-                end_coord=segment[1].to_location,
+                end_coord=segment[-1].to_location,
                 distances_start_to_act=d_start_to_act,
                 distances_act_to_end=d_act_to_end,
                 min_candidates=self.config.candidates_complex_case,

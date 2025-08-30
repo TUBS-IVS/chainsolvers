@@ -8,8 +8,8 @@ import pandas as pd
 from collections import defaultdict
 from frozendict import frozendict
 
-from chainsolvers.types import Leg, SegmentedPlans
-from helpers import to_bool
+from .types import Leg, SegmentedPlans
+from .helpers import to_bool
 
 import logging
 
@@ -20,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class PlanColumns:
-    person_id: str = "person_id"
-    unique_leg_id: str = "leg_id"
+    person_id: str = "unique_person_id"
+    unique_leg_id: str = "unique_leg_id"
     to_act_type: str = "to_act_type"
-    leg_distance_m: str = "distance_m"
+    leg_distance_m: str = "distance_meters"
     from_x: str = "from_x"
     from_y: str = "from_y"
     to_x: str = "to_x"
@@ -58,11 +58,12 @@ def _suggest(similar_to: str, universe: Iterable[str], n: int = 3) -> list[str]:
     return difflib.get_close_matches(similar_to, list(universe), n=n, cutoff=0.6)
 
 
-def validate_plans_dataframe(df: pd.DataFrame, strict: bool = False) -> None:
+def validate_input_plans_df(df: pd.DataFrame, strict: bool = False) -> None:
     """
     Validate presence of required columns (and, if strict=True, that all configured optional names exist).
     Raises ValueError with helpful suggestions if something is missing.
     """
+
     c = PlanColumns()
     present = set(df.columns)
 
@@ -75,14 +76,14 @@ def validate_plans_dataframe(df: pd.DataFrame, strict: bool = False) -> None:
         msgs.append("Missing required columns:")
         for name in missing_required:
             sugg = _suggest(name, present)
-            hint = f"  - {name}" + (f" (did you mean: {', '.join(sugg)})" if sugg else "")
+            hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
             msgs.append(hint)
 
     if strict and missing_optional:
         msgs.append("Missing optional columns (set the respective field to None in PlanColumns if unused):")
         for name in missing_optional:
             sugg = _suggest(name, present)
-            hint = f"  - {name}" + (f" (did you mean: {', '.join(sugg)})" if sugg else "")
+            hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
             msgs.append(hint)
 
     if msgs:
@@ -90,13 +91,18 @@ def validate_plans_dataframe(df: pd.DataFrame, strict: bool = False) -> None:
         msgs.append(f"Expected → required={need['required']}, optional={need['optional']}")
         raise ValueError("\n".join(msgs))
 
-
-# --- Core converter -----------------------------------------------------------
+    # --- Helpful summary ------------------------------------------------------
+    try:
+        n_persons = df[c.person_id].nunique(dropna=True)
+        n_rows = len(df)
+        logger.info("Input summary: %d legs across %d persons.", n_rows, n_persons)
+    except Exception:
+        logger.error("Could not compute summary stats.")
+        pass
 
 def convert_to_segmented_plans(
     df: pd.DataFrame,
     *,
-    validate: bool = True,
     forbid_negative_distance: bool = True,
     forbid_missing_distance: bool = True,
 ) -> SegmentedPlans:
@@ -107,8 +113,6 @@ def convert_to_segmented_plans(
     ----------
     df : pd.DataFrame
         Input table containing at least the required columns defined by `PlanColumns`.
-    validate : bool, default True
-        If True, checks required/optional columns (non-strict) and raises with suggestions on mismatch.
     forbid_negative_distance : bool, default False
         If True, raises on any leg with distance < 0.
 
@@ -118,8 +122,6 @@ def convert_to_segmented_plans(
         frozendict mapping person_id -> tuple[Leg, ...]
     """
     c = PlanColumns()
-    if validate:
-        validate_plans_dataframe(df, strict=False)
 
     def safe_xy(x: Any, y: Any) -> Optional[np.ndarray]:
         # Return (2,) float64 if both present and finite; else None.
@@ -471,55 +473,54 @@ def build_name_lookup_from_df(df: pd.DataFrame) -> Dict[str, str]:
     sub = df[[cols.id, cols.name]].dropna(subset=[cols.id]).astype({cols.id: str, cols.name: str})
     return dict(zip(sub[cols.id], sub[cols.name]))  # last occurrence wins
 
-
 def segmented_plans_to_dataframe(
     plans: SegmentedPlans,
     *,
-    include_extras: Optional[Iterable[str]] = None,
+    include_extras: bool = False,
 ) -> pd.DataFrame:
     """
     Flatten SegmentedPlans to a DataFrame using `PlanColumns` naming.
-    Pulls selected keys from `extras` into columns if requested.
+    If `include_extras=True`, all keys from `extras` are added as columns.
     """
-    want_extras = set(include_extras or [])
     rows: list[dict[str, Any]] = []
     cols = PlanColumns()
 
-    for person_id, legs in plans.items():
-        for leg in legs:
-            g = lambda k, d=None: getattr(leg, k, d)
+    for person_id, segments in plans.items():
+        for segment in segments:
+            for leg in segment:
+                g = lambda k, d=None: getattr(leg, k, d)
 
-            fx = fy = tx = ty = np.nan
-            fr = g("from_location")
-            to = g("to_location")
-            if isinstance(fr, np.ndarray) and fr.shape == (2,):
-                fx, fy = float(fr[0]), float(fr[1])
-            if isinstance(to, np.ndarray) and to.shape == (2,):
-                tx, ty = float(to[0]), float(to[1])
+                fx = fy = tx = ty = np.nan
+                fr = g("from_location")
+                to = g("to_location")
+                if isinstance(fr, np.ndarray) and fr.shape == (2,):
+                    fx, fy = float(fr[0]), float(fr[1])
+                if isinstance(to, np.ndarray) and to.shape == (2,):
+                    tx, ty = float(to[0]), float(to[1])
 
-            row = {
-                cols.person_id: str(person_id),
-                cols.unique_leg_id: str(g("unique_leg_id")),
-                cols.to_act_type: g("to_act_type"),
-                cols.leg_distance_m: float(g("distance", 0.0) or 0.0),
-                cols.from_x: fx,
-                cols.from_y: fy,
-                cols.to_x: tx,
-                cols.to_y: ty,
-            }
-            if cols.mode:
-                row[cols.mode] = g("mode")
-            if cols.to_act_is_main:
-                row[cols.to_act_is_main] = g("to_act_is_main_act")
-            if cols.to_act_identifier:
-                row[cols.to_act_identifier] = g("to_act_identifier")
+                row = {
+                    cols.person_id: str(person_id),
+                    cols.unique_leg_id: str(g("unique_leg_id")),
+                    cols.to_act_type: g("to_act_type"),
+                    cols.leg_distance_m: float(g("distance", 0.0) or 0.0),
+                    cols.from_x: fx,
+                    cols.from_y: fy,
+                    cols.to_x: tx,
+                    cols.to_y: ty,
+                }
+                if cols.mode:
+                    row[cols.mode] = g("mode")
+                if cols.to_act_is_main:
+                    row[cols.to_act_is_main] = g("to_act_is_main_act")
+                if cols.to_act_identifier:
+                    row[cols.to_act_identifier] = g("to_act_identifier")
 
-            extras = g("extras") or {}
-            if isinstance(extras, dict):
-                for k in want_extras:
-                    row[k] = extras.get(k)
+                if include_extras:
+                    extras = g("extras") or {}
+                    if isinstance(extras, dict):
+                        row.update(extras)
 
-            rows.append(row)
+                rows.append(row)
 
     return pd.DataFrame(rows)
 
@@ -614,3 +615,67 @@ def segment_plans(
         out[str(person_id)] = tuple(segments)
 
     return frozendict(out)
+
+def validate_output_plans_df(
+    df: pd.DataFrame,
+) -> bool:
+    """
+    Validate a results DataFrame after placement. Logs findings; returns True/False.
+    - Ensures required columns exist.
+    - Ensures assigned coordinates (to_x/to_y) are present & finite.
+    - Ensures distances are present & nonnegative (if check_distance_nonnegative=True).
+    """
+    ok = True
+    cols = PlanColumns()
+    # --- Column presence ------------------------------------------------------
+    required = {
+        cols.person_id, cols.unique_leg_id, cols.to_act_type, cols.leg_distance_m,
+        cols.to_x, cols.to_y
+    }
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        logger.error("Validation failed: missing required columns: %s", missing)
+        ok = False
+    else:
+        logger.info("All required columns present: %s", sorted(required))
+
+    if not ok:
+        return False  # can't continue checks reliably
+
+    # --- Coerce to numeric views for checks (no mutation) ---------------------
+    to_x = pd.to_numeric(df[cols.to_x], errors="coerce")
+    to_y = pd.to_numeric(df[cols.to_y], errors="coerce")
+    dist = pd.to_numeric(df[cols.leg_distance_m], errors="coerce")
+
+    # --- XY assigned & finite -------------------------------------------------
+    bad_xy_mask = ~(np.isfinite(to_x.values) & np.isfinite(to_y.values))
+    n_bad_xy = int(bad_xy_mask.sum())
+    if n_bad_xy > 0:
+        logger.error("Validation failed: %d rows have missing/non-finite assigned coordinates (%s/%s).",
+                     n_bad_xy, cols.to_x, cols.to_y)
+        ok = False
+    else:
+        logger.info("All assigned coordinates are present and finite.")
+
+    # --- Distance presence / sign --------------------------------------------
+    n_dist_na = int((~np.isfinite(dist.values)).sum())
+    if n_dist_na > 0:
+        logger.error("Validation failed: %d rows have missing/non-finite %s.", n_dist_na, cols.leg_distance_m)
+        ok = False
+    n_dist_neg = int((dist.values < 0).sum())
+    if n_dist_neg > 0:
+        logger.error("Validation failed: %d rows have negative %s.", n_dist_neg, cols.leg_distance_m)
+        ok = False
+    if n_dist_na == 0 and n_dist_neg == 0:
+        logger.info("All distances present and non-negative.")
+
+    # --- Helpful summary ------------------------------------------------------
+    try:
+        n_persons = df[cols.person_id].nunique(dropna=True)
+        n_rows = len(df)
+        logger.info("Results summary: %d legs across %d persons.", n_rows, n_persons)
+    except Exception:
+        logger.error("Could not compute summary stats.")
+        pass
+
+    return ok

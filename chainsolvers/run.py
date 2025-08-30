@@ -6,20 +6,19 @@
 # freed during long solves.
 
 from __future__ import annotations
-from typing import Optional, Iterable, Mapping, Any, Type
+from typing import Optional, Iterable, Mapping, Any, Type, Tuple
 
-from scoring_selection import Scorer, Selector
 import logging
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 from frozendict import frozendict
-from locations import Locations
 
-from solvers.carla import Carla
-from solvers.carla_plus import CarlaPlus
-
-from chainsolvers import io
+from .locations import Locations
+from .scoring_selection import Scorer, Selector
+from .solvers.carla import Carla
+from .solvers.carla_plus import CarlaPlus
+from . import io
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +55,13 @@ def _instantiate_solver(
     progress: Optional[Any] = None,
     stats: Optional[Any] = None,
     scorer: Optional[Any] = None,
-    selector: Optional[Any] = None
+    selector: Optional[Any] = None,
+    visualizer: Optional[Any] = None
 ) -> Any:
 
+    if solver_name is None:
+        solver_name = next(iter(SOLVER_REGISTRY)) # First in dict
+        logger.info("No solver name provided; using '%s'.", solver_name)
     try:
         SolverCls = SOLVER_REGISTRY[solver_name]
     except KeyError as e:
@@ -75,6 +78,7 @@ def _instantiate_solver(
         stats=stats,
         scorer=scorer,
         selector=selector,
+        visualizer=visualizer,
         **params,
     )
 
@@ -211,6 +215,7 @@ def setup(
     # locations sources (one required)
     locations_dict: Optional[Mapping[str, Mapping[str, Mapping[str, Any]]]] = None,
     locations_df: Optional[pd.DataFrame] = None,
+    locations_tuple: Optional[Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]] = None,
 
     # solver selection
     solver: Optional[str] = None,
@@ -225,21 +230,27 @@ def setup(
     rng: Optional[np.random.Generator] = None,
     rng_seed: Optional[int] = None,
     progress: Optional[Any] = None,  # tqdm-like wrapper or None
+    visualizer: Optional[Any] = None
 ) -> RunnerContext:
+
     progress_fn = progress or _nop_progress
     rng_obj = _normalize_rng(rng=rng, rng_seed=rng_seed)
 
     # --- Locations
-    if (locations_dict is None) == (locations_df is None):
-        raise ValueError("Provide exactly one of locations_dict or locations_df.")
+    if (locations_dict is None) == (locations_df is None) == (locations_tuple is None):
+        raise ValueError("Provide exactly one of locations_dict, locations_df, or locations_tuple.")
 
     if locations_dict is not None:
         identifiers, coordinates, potentials = io.build_locations_payload_from_dict(locations_dict)
         name_lookup = io.build_name_lookup_from_dict(locations_dict)
-    else:
+    elif locations_df is not None:
         identifiers, coordinates, potentials = io.build_locations_payload_from_df(locations_df)  # type: ignore[arg-type]
         name_lookup = io.build_name_lookup_from_df(locations_df)  # type: ignore[arg-type]
-
+    elif locations_tuple is not None:
+        identifiers, coordinates, potentials = locations_tuple
+        name_lookup = {}
+    else:
+        raise ValueError("Cannot reach this point.")
     locations = Locations(identifiers, coordinates, potentials, stats)
 
     # --- Scoring / selection
@@ -256,6 +267,7 @@ def setup(
         stats=stats,
         scorer=scor,
         selector=selr,
+        visualizer = visualizer
     )
 
     needs_flag = getattr(solver_obj, "needs_segmented_plans", None)
@@ -273,7 +285,6 @@ def setup(
         name_lookup=name_lookup,
     )
 
-from typing import Tuple
 
 def solve(
     *,
@@ -287,15 +298,16 @@ def solve(
 
     # export options
     include_extras_on_export: bool = True,
-) -> Tuple[Optional["SegmentedPlans"], pd.DataFrame]:
+) -> Tuple[Optional["SegmentedPlans"], pd.DataFrame, bool]:
 
     solver_obj = ctx.solver
+
+    io.validate_input_plans_df(plans_df)
 
     # Prepare input for solver
     if solver_obj.needs_segmented_plans:
         plans_in = io.convert_to_segmented_plans(
             plans_df,
-            validate=validate_plans,
             forbid_negative_distance=forbid_negative_distance,
             forbid_missing_distance=forbid_missing_distance,
         )
@@ -327,5 +339,7 @@ def solve(
     if ctx.name_lookup:
         result_df = io.enrich_plans_df_with_names(result_df, name_lookup=ctx.name_lookup)
 
-    return result_plans, result_df
+    valid = io.validate_output_plans_df(result_df)
+
+    return result_df, result_plans, valid
 

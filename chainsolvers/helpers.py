@@ -1,6 +1,9 @@
-import math
 from typing import List, Tuple, Sequence, Optional
 import numpy as np
+import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 """Minimal helper set used by the locator/algorithms."""
 
@@ -48,7 +51,6 @@ def euclidean_distance(a: np.ndarray, b: np.ndarray) -> float:
 #     return tp >= lo or tp <= hi
 
 # ---- ring growth / bounds ----
-from typing import Tuple
 
 
 def spread_radii(
@@ -91,18 +93,19 @@ def spread_radii(
 
 def get_min_max_distance(distances: Sequence[float]) -> Tuple[float, float]:
     """
+    Expects list, tuple, or ndarray (n,).
     Triangle-inequality bounds for radial distance from an endpoint to an anchor
     given a chain of leg lengths.
     min = max( max(li - (sum - li)), 0 )
     max = sum(li)
     """
-    if not distances:
+    if len(distances) == 0:
         raise ValueError("No distances given.")
     if len(distances) == 1:
         d = float(distances[0])
         return d, d
 
-    arr = np.asarray(distances, dtype=float)
+    arr = np.asarray(distances)
     total = float(arr.sum())
     # largest excess a single leg can have over all the others
     overshoot = float(np.max(arr - (total - arr)))
@@ -204,12 +207,7 @@ def estimate_length_with_slack(
     val = max(wanted_min, min(val, wanted_max))
     return [real_min, wanted_min, val, wanted_max, real_max]
 
-from typing import Optional, Tuple
-import numpy as np
-import math
-import logging
 
-logger = logging.getLogger(__name__)
 
 def get_circle_intersections(
     center1: np.ndarray,
@@ -531,3 +529,8 @@ def to_bool(val) -> Optional[bool]:
     if s in {"0", "false", "f", "no", "n"}:
         return False
     raise ValueError(f"Cannot convert {val!r} to bool.")
+
+
+def assert_point2(p: np.ndarray):
+    assert isinstance(p, np.ndarray) and p.dtype == np.float64 and p.shape == (2,), \
+        f"Expected (2,) float64, got {getattr(p, 'shape', None)} {getattr(p, 'dtype', None)}"

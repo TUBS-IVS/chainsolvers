@@ -6,9 +6,9 @@ from scipy.spatial import cKDTree
 import math
 import logging
 
-logger = logging.getLogger(__name__)
+from . import helpers as h
 
-import helpers as h
+logger = logging.getLogger(__name__)
 
 
 class Locations:
@@ -58,19 +58,14 @@ class Locations:
             act_type: str,
             locations: np.ndarray,
             k: int = 1,
-            unsafe: bool = False
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Find k nearest neighbors of one or more query points.
-        Input: (2,), (1,2), or (m,2).
+        Input: (2,), (1,2), or (m,2). Should be float64.
         Output single→(k,), (k,2), (k,); multi→(m,k), (m,k,2), (m,k).
-        Set unsafe=True if already float64 (faster).
         Returns (ids, coords, potentials).
         """
-        if unsafe:
-            loc = locations
-        else:
-            loc = np.asarray(locations, dtype=np.float64)
+        loc = np.asarray(locations, dtype=np.float64)
 
         _, idx = self.trees[act_type].query(loc, k=k)
 
@@ -94,10 +89,10 @@ class Locations:
     def query_within_ring(
             self,
             act_type: str,
-            location: np.ndarray,
+            loc: np.ndarray,
             radius1: float,
             radius2: float,
-            unsafe: bool = False,
+            exclude_self: bool = True, # TODO:thread through
     ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         Return candidates within an annulus around `location`.
@@ -108,14 +103,12 @@ class Locations:
 
         Set unsafe=True if `location` is already (2,) float64 (skips copy/shape fix).
         """
-        if unsafe:
-            loc = location  # must be (2,) float64 already
-        else:
-            loc = h.to_point_1d(location)
+        h.assert_point2(loc)
 
         tree = self.trees[act_type]
         r_outer, r_inner = (radius1, radius2) if radius1 >= radius2 else (radius2, radius1)
-        r2_inner = r_inner * r_inner
+        if exclude_self:
+            r_inner = max(r_inner, 0.1)
 
         # Outer candidates (query_ball_point → list[int]; convert to ndarray[intp])
         outer = np.asarray(tree.query_ball_point(loc, r_outer), dtype=np.intp)
@@ -125,7 +118,7 @@ class Locations:
         # Filter out points inside inner radius using squared distances
         pts = tree.data[outer]  # (n,2) view
         d2 = np.sum((pts - loc) ** 2, axis=1)  # (n,)
-        keep = outer[d2 >= r2_inner]  # (k,)
+        keep = outer[d2 >= (r_inner * r_inner)]  # (k,)
         if keep.size == 0:
             return None
 
@@ -138,13 +131,13 @@ class Locations:
     def query_within_two_overlapping_rings(
             self,
             act_type: str,
-            location1: np.ndarray,
-            location2: np.ndarray,
+            loc1: np.ndarray,
+            loc2: np.ndarray,
             r1outer: float,
             r1inner: float,
             r2outer: float,
             r2inner: float,
-            unsafe: bool = False,
+            exclude_self: bool = True, # TODO:thread through
     ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """
         Candidates in the overlap of two annuli around `location1` and `location2`.
@@ -155,12 +148,7 @@ class Locations:
 
         Set unsafe=True if both locations are already (2,) float64 (skips copy/shape fix).
         """
-        if unsafe:
-            loc1 = location1  # must be (2,) float64 already
-            loc2 = location2
-        else:
-            loc1 = h.to_point_1d(location1)
-            loc2 = h.to_point_1d(location2)
+        h.assert_point2(loc1); h.assert_point2(loc2)
 
         tree = self.trees[act_type]
 
@@ -171,6 +159,10 @@ class Locations:
         else:
             base_loc, other_loc = loc2, loc1
             r_ob, r_ib, r_oo, r_io = r2outer, r2inner, r1outer, r1inner
+
+        if exclude_self:
+            r_io = max(r_io, 0.1)
+            r_ib = max(r_ib, 0.1)
 
         # Outer candidates within base outer radius
         cand = np.asarray(tree.query_ball_point(base_loc, r_ob), dtype=np.intp)
@@ -266,7 +258,7 @@ class Locations:
             )
 
         while True:
-            cand = self.query_within_ring(act_type, c, radius_outer, radius_inner, unsafe=True)  # already (2,) float64
+            cand = self.query_within_ring(act_type, c, radius_outer, radius_inner)  # already (2,) float64
             if cand is not None:
                 ids, coords, pots = cand  # ids:(k,), coords:(k,2), pots:(k,)
                 if restrict_angle and ids.size:
@@ -337,7 +329,6 @@ class Locations:
             cand = self.query_within_two_overlapping_rings(
                 act_type, location1, location2,
                 r1outer, r1inner, r2outer, r2inner,
-                unsafe=unsafe,
             )
             if cand is not None:
                 ids, coords, pots = cand  # ids: (k,), coords: (k,2), pots: (k,)
@@ -394,9 +385,7 @@ class Locations:
         # single intersection → direct call; returns (k,), (k,2), (k,)
         if p2 is None or p1 is None:
             pt = p1 if p1 is not None else p2
-            ids, coords, pots = self.query_closest(
-                act_type, pt, num_candidates, unsafe=unsafe
-            )
+            ids, coords, pots = self.query_closest(act_type, pt, num_candidates)
             return ids, coords, pots
 
         # two intersections → one batched call, then flatten to (2*k,), (2*k,2), (2*k,)
@@ -404,9 +393,7 @@ class Locations:
         qp[0] = p1
         qp[1] = p2
 
-        ids, coords, pots = self.query_closest(
-            act_type, qp, num_candidates, unsafe=True
-        )  # ids:(2,k), coords:(2,k,2), pots:(2,k)
+        ids, coords, pots = self.query_closest(act_type, qp, num_candidates)  # ids:(2,k), coords:(2,k,2), pots:(2,k)
 
         # Concatenate per-intersection results (views if contiguous)
         return ids.reshape(-1), coords.reshape(-1, 2), pots.reshape(-1)
@@ -446,7 +433,7 @@ class Locations:
         near = (dx * dx + dy * dy) < (near_eps * near_eps)
 
         if near:
-            r_outer, r_inner = h.spread_radii(dist_start_to_act, dist_act_to_end, spread_to=20)
+            r_outer, r_inner = h.spread_radii(dist_start_to_act, dist_act_to_end, spread_to=40)
             ids, coords, pots = self.get_ring_candidates(
                 act_type, start_coord, r_outer, r_inner, min_candidates=min_candidates, unsafe=True
             )
