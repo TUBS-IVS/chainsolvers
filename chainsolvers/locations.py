@@ -66,7 +66,7 @@ class Locations:
         Returns (ids, coords, potentials).
         """
         loc = np.asarray(locations, dtype=np.float64)
-
+        k = min(k, len(self.identifiers[act_type]))
         _, idx = self.trees[act_type].query(loc, k=k)
 
         if np.ndim(idx) == 0:  # scalar (single point, k=1) → (1,1)
@@ -151,6 +151,10 @@ class Locations:
         h.assert_point2(loc1); h.assert_point2(loc2)
 
         tree = self.trees[act_type]
+
+        # Guard against swapped inputs
+        r1outer, r1inner = (r1outer, r1inner) if r1outer >= r1inner else (r1inner, r1outer)
+        r2outer, r2inner = (r2outer, r2inner) if r2outer >= r2inner else (r2inner, r2outer)
 
         # Choose base = smaller outer radius to reduce candidates
         if r1outer <= r2outer:

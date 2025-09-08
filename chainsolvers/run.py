@@ -291,12 +291,8 @@ def solve(
     ctx: RunnerContext,
     plans_df: pd.DataFrame,
 
-    # validation / conversion options
-    validate_plans: bool = True,
     forbid_negative_distance: bool = True,
     forbid_missing_distance: bool = True,
-
-    # export options
     include_extras_on_export: bool = True,
 ) -> Tuple[Optional["SegmentedPlans"], pd.DataFrame, bool]:
 
