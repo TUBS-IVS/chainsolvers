@@ -1,5 +1,7 @@
 # chainsolvers
 
+⚠️ Experimental/unstable API
+
 **chainsolvers** is a Python library for solving *point placement along chains* problems — for example, distributing activities along activity chains to feasible locations. It provides pluggable solver routines, together with configurable **scorers** and **selectors**, to flexibly evaluate and select candidate solutions.
 
 ## Quickstart
@@ -40,15 +42,15 @@ plans_df = pd.DataFrame([
 placed_plans, placement_df = cs.solve(
     ctx=ctx,
     plans_df=plans_df,
-    # validate_plans=True,
-    # forbid_negative_distance=True,
-    # forbid_missing_distance=True,
-    # include_extras_on_export=True,
+    # forbid_negative_distance=True, # Input validation
+    # forbid_missing_distance=True
 )
 ```
 
 ## Returns
+Tuple:
+- **`placement_df`**: `pandas.DataFrame` (always returned). Results in df format.
+- **`placed_plans`**: `SegmentedPlans` (`frozendict[str, tuple[Segment, ...]]`) or `None`. Results in the internal `SegmentedPlans` (may be useful, else just ignore).
+- **`valid`**: `bool`. Whether the output validation succeeded. 
 
-- **`placed_plans`**: `SegmentedPlans` (`frozendict[str, tuple[Segment, ...]]`) or `None`.
-- **`placement_df`**: `pandas.DataFrame` (always returned).
 
