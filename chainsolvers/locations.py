@@ -436,12 +436,13 @@ class Locations:
         dy = start_coord[1] - end_coord[1]
         near = (dx * dx + dy * dy) < (near_eps * near_eps)
 
-        if near:
+        if near: # Fallback to annulus
+            # Initial spread
             r_outer, r_inner = h.spread_radii(dist_start_to_act, dist_act_to_end, spread_to=40)
             ids, coords, pots = self.get_ring_candidates(
                 act_type, start_coord, r_outer, r_inner, min_candidates=min_candidates, unsafe=True
             )
-        else:
+        else: # Circle intersections
             ids, coords, pots = self.get_circle_intersection_candidates(
                 start_coord, end_coord, act_type, dist_start_to_act, dist_act_to_end,
                 min_candidates, unsafe=True
@@ -452,8 +453,8 @@ class Locations:
 
         # Distance deviations (k,)
         ddev = (
-                h.get_abs_distance_deviations(coords, start_coord, dist_start_to_act) +
-                h.get_abs_distance_deviations(coords, end_coord, dist_act_to_end)
+                h.get_distance_deviations(coords, start_coord, dist_start_to_act) +
+                h.get_distance_deviations(coords, end_coord, dist_act_to_end)
         )
 
         # Scores (k,)
@@ -506,30 +507,36 @@ class Locations:
         if k == 0:
             raise RuntimeError("No overlapping-rings candidates found.")
 
-        # Deviations (only lowest-level side to avoid double counting!!)
-        deviations = np.zeros(k, dtype=float)
+        # Deviations
+        # Temp: Any deviation, even abstract deviation, at this level - for selection heuristics, then thrown away.
+        # Permanent: only the lowest-level side(s) to avoid double counting (!!) when scores are added up by caller
+        permanent_deviations = np.zeros(k, dtype=float)
+        temp_deviations = np.zeros(k, dtype=float)
         if iterations > 0:
-            # when we had to expand, penalize only the side that has a single leg length
             if len(distances_start_to_act) == 1:
-                deviations += h.get_abs_distance_deviations(cand_coords, start_coord, distances_start_to_act)
-            elif len(distances_act_to_end) == 1:
-                deviations += h.get_abs_distance_deviations(cand_coords, end_coord, distances_act_to_end)
-        else:
-            # in the no-expansion case, total deviations should be zero
-            if len(distances_start_to_act) == 1:
-                deviations += h.get_abs_distance_deviations(cand_coords, start_coord, distances_start_to_act)
+                permanent_deviations += h.get_distance_deviations(cand_coords, start_coord, distances_start_to_act[0])
             if len(distances_act_to_end) == 1:
-                deviations += h.get_abs_distance_deviations(cand_coords, end_coord, distances_act_to_end)
-            if np.any(deviations != 0.0):
+                permanent_deviations += h.get_distance_deviations(cand_coords, end_coord, distances_act_to_end[0])
+
+            temp_deviations += h.get_abstract_distance_deviations(cand_coords, start_coord, r1_min, r1_max)
+            temp_deviations += h.get_abstract_distance_deviations(cand_coords, end_coord, r2_min, r2_max)
+
+        else:
+            # Sanity check
+            temp_deviations += h.get_abstract_distance_deviations(cand_coords, start_coord, r1_min, r1_max)
+            temp_deviations += h.get_abstract_distance_deviations(cand_coords, end_coord, r2_min, r2_max)
+            if np.any(temp_deviations > 0.01):
                 raise ValueError("Total deviations should be zero in no-iteration case.")
 
+        temp_scores = scorer.score(potentials=cand_pots, dist_deviations=temp_deviations)
+        scores = scorer.score(potentials=cand_pots, dist_deviations=permanent_deviations)
 
-        scores = scorer.score(potentials=cand_pots, dist_deviations=deviations)
         sel_idx = selector.select(
-            scores=scores,
+            scores=temp_scores, # use temp scores for heuristics
             num_candidates=sel_candidates,
             strategy=selection_strategy,
             coords=cand_coords,  # some strategies may use spatial layout
             rng=rng,
         )
+
         return cand_ids[sel_idx], cand_coords[sel_idx], cand_pots[sel_idx], scores[sel_idx]

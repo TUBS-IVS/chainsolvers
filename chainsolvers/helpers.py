@@ -112,28 +112,71 @@ def get_min_max_distance(distances: Sequence[float]) -> Tuple[float, float]:
     min_possible = max(overshoot, 0.0)
     return min_possible, total
 
-def get_abs_distance_deviations(
-    candidate_coords: np.ndarray,
-    center: np.ndarray,
-    target_distance: np.ndarray | float,
+# def get_abs_distance_deviations(
+#     candidate_coords: np.ndarray,
+#     center: np.ndarray,
+#     target_distance: np.ndarray | float,
+# ) -> np.ndarray:
+#     """
+#     | ||x - center|| - target_distance | for each candidate.
+#     Accepts:
+#       - candidate_coords: (N,2) or (2,)
+#       - center: (2,)
+#       - target_distance: scalar or shape-(N,) array (broadcasted if needed)
+#     Returns shape-(N,) float array.
+#     """
+#     coords = np.atleast_2d(np.asarray(candidate_coords, dtype=float))
+#     ctr = np.asarray(center, dtype=float).reshape(1, -1)
+#     dists = np.linalg.norm(coords - ctr, axis=1)
+#     tgt = np.asarray(target_distance, dtype=float)
+#     if tgt.ndim == 0:
+#         tgt = np.full_like(dists, float(tgt))
+#     elif tgt.shape != dists.shape:
+#         tgt = np.broadcast_to(tgt, dists.shape)
+#     return np.abs(dists - tgt)
+
+def get_distance_deviations(
+        candidate_coords: np.ndarray,  # (N,2)
+        center: np.ndarray,  # (2,)
+        target_distance: float,
 ) -> np.ndarray:
     """
-    | ||x - center|| - target_distance | for each candidate.
-    Accepts:
-      - candidate_coords: (N,2) or (2,)
-      - center: (2,)
-      - target_distance: scalar or shape-(N,) array (broadcasted if needed)
-    Returns shape-(N,) float array.
+    Return |‖x - center‖ - target_distance| for each candidate (deviations: (N,) array, >= 0).
     """
-    coords = np.atleast_2d(np.asarray(candidate_coords, dtype=float))
-    ctr = np.asarray(center, dtype=float).reshape(1, -1)
-    dists = np.linalg.norm(coords - ctr, axis=1)
-    tgt = np.asarray(target_distance, dtype=float)
-    if tgt.ndim == 0:
-        tgt = np.full_like(dists, float(tgt))
-    elif tgt.shape != dists.shape:
-        tgt = np.broadcast_to(tgt, dists.shape)
-    return np.abs(dists - tgt)
+    assert candidate_coords.ndim == 2 and candidate_coords.shape[1] == 2
+    assert center.shape == (2,)
+    assert np.isscalar(target_distance)
+
+    dists = np.hypot(candidate_coords[:, 0] - center[0],
+                     candidate_coords[:, 1] - center[1])
+    return np.abs(dists - target_distance)
+
+def get_abstract_distance_deviations(
+    candidate_coords: np.ndarray,  # (N,2)
+    center: np.ndarray,            # (2,)
+    r_min: float,
+    r_max: float,
+) -> np.ndarray:
+    """
+    Deviation from being within [r_min, r_max].
+    If d in [r_min, r_max], deviation = 0.
+    If d < r_min, deviation = r_min - d.
+    If d > r_max, deviation = d - r_max.
+    Returns deviations: (N,) array, >= 0
+    """
+    assert candidate_coords.ndim == 2 and candidate_coords.shape[1] == 2
+    assert center.shape == (2,)
+    assert np.isscalar(r_min) and np.isscalar(r_max)
+    assert r_min <= r_max
+
+    dists = np.hypot(candidate_coords[:, 0] - center[0],
+                     candidate_coords[:, 1] - center[1])
+
+    # Vectorized "outside distance"
+    dev_below = np.clip(r_min - dists, a_min=0, a_max=None)
+    dev_above = np.clip(dists - r_max, a_min=0, a_max=None)
+    return dev_below + dev_above
+
 
 # ---- activity helpers ----
 def get_main_activity_leg(person_legs: list[dict]) -> tuple[Optional[int], Optional[dict]]:
