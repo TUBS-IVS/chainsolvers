@@ -61,28 +61,42 @@ class Locations:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Find k nearest neighbors of one or more query points.
-        Input: (2,), (1,2), or (m,2). Should be float64.
-        Output single→(k,), (k,2), (k,); multi→(m,k), (m,k,2), (m,k).
+        Input: (2,), (1,2), or (m,2). Dtype should match tree (e.g., float64).
+        Output single → (k,), (k,2), (k,); multi → (m,k), (m,k,2), (m,k).
         Returns (ids, coords, potentials).
         """
-        loc = np.asarray(locations, dtype=np.float64)
-        k = min(k, len(self.identifiers[act_type]))
+        # Match the KD-tree's dtype rather than forcing float64
+        coord_dtype = self.coordinates[act_type].dtype
+        loc = np.asarray(locations, dtype=coord_dtype)
+
+        # Clamp k to the catalog size
+        n = self.identifiers[act_type].shape[0]
+        k = min(k, n)
+
+        # KD-tree query: idx can be scalar, (k,), (m,), or (m,k)
         _, idx = self.trees[act_type].query(loc, k=k)
 
-        if np.ndim(idx) == 0:  # scalar (single point, k=1) → (1,1)
+        # Normalize idx to 2D: (1,1), (1,k), (m,1), or (m,k)
+        if np.ndim(idx) == 0:  # scalar (single point, k=1) -> (1,1)
             idx = idx[None, None]
-        elif np.ndim(idx) == 1:  # (k,) or (m,) → (1,k) or (m,1)
-            if loc.ndim == 1:  # input was (2,) → single point
+        elif np.ndim(idx) == 1:  # (k,) or (m,) -> (1,k) or (m,1)
+            if loc.ndim == 1:  # input was (2,) -> single point
                 idx = idx[None, :]  # (1,k)
             else:  # input was (m,2), k=1
                 idx = idx[:, None]  # (m,1)
 
-        ids = self.identifiers[act_type][idx]
-        coords = self.coordinates[act_type][idx]
-        pots = self.potentials[act_type][idx]
+        ids_arr = self.identifiers[act_type]
+        coords_arr = self.coordinates[act_type]
+        pots_arr = self.potentials[act_type]
 
-        # --- Collapse if it was a single query ---
-        if loc.ndim == 1 or (loc.ndim == 2 and loc.shape[0] == 1):
+        # Gather (np.take is a bit leaner than general fancy indexing)
+        ids = np.take(ids_arr, idx, axis=0)
+        coords = np.take(coords_arr, idx, axis=0)
+        pots = np.take(pots_arr, idx, axis=0)
+
+        # Collapse if it was effectively a single query ((2,) or (1,2))
+        single = (loc.ndim == 1) or (loc.ndim == 2 and loc.shape[0] == 1)
+        if single:
             return ids[0], coords[0], pots[0]
         return ids, coords, pots
 

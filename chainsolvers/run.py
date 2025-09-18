@@ -132,7 +132,7 @@ def setup(
         viz_obj = _VizCls(savedir=str(visualizer), map_prefix=solver)
 
     # --- Locations
-    if (locations_dict is None) == (locations_df is None) == (locations_tuple is None):
+    if sum(x is not None for x in (locations_dict, locations_df, locations_tuple)) != 1:
         raise ValueError("Provide exactly one of locations_dict, locations_df, or locations_tuple.")
 
     if locations_dict is not None:
