@@ -77,7 +77,7 @@ ctx = cs.setup(
     #     "number_of_branches": 50,
     #     "candidates_complex_case": 100,
     #     "candidates_two_leg_case": 40,
-    #     "anchor_strategy": "lower_middle",  # {'lower_middle','upper_middle','start','end'}
+    #     "anchor_strategy": "lower_middle",
     #     "selection_strategy_complex_case": "top_n_spatial_downsample",
     #     "selection_strategy_two_leg_case": "top_n",
     #     "max_iterations_complex_case": 100,
