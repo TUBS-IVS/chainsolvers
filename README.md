@@ -1,7 +1,5 @@
 # chainsolvers
 
-⚠️ Experimental/unstable API
-
 **chainsolvers** is a Python library for solving *point placement along chains* problems — for example, distributing activities along activity chains to feasible locations. It provides pluggable solver routines, together with configurable **scorers** and **selectors**, to flexibly evaluate and select candidate solutions.
 
 ## Quickstart
@@ -11,12 +9,14 @@ Use the two-step runner: `setup(...) -> RunnerContext` and `solve(ctx=..., plans
 ```python
 import chainsolvers as cs
 import pandas as pd
+import numpy as np
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
-
-# 1) Candidate locations (choose exactly one source)
+# 1) Candidate locations
+# Provide exactly one of: locations_df, locations_dict, or locations_tuple (these are just different ways of representing the same thing)
+# df is probably the easiest coming from a csv, geopackage or similar, tuple is the internal format
 locations_df = pd.DataFrame([
     # minimal columns: id, act_type, x, y
     {"activities": "work; business; leisure", "id": "1", "x": 15.0, "y": 13.0, "potential": 100.0, "name": "Business Factory"},
@@ -24,18 +24,72 @@ locations_df = pd.DataFrame([
     {"activities": "education; sports", "id": "3", "x": 10.0, "y": 10.0, "potential": 5000.0, "name": "Big School"},
 ])
 
-# 2) Create a runner context
-ctx = cs.setup(
-    locations_df=locations_df,     # or: locations_dict=... (nested mapping)
-    solver="carla",           # from cs.SOLVER_REGISTRY: {"carla","carla_plus"}
-    parameters={"number_of_branches": 20, "candidates_complex_case": 50},  # passed to the chosen solver, unspecified uses default
-    # rng_seed=42,                 # or pass a numpy Generator
-    # scorer=CustomScorer(),       # optional; defaults provided
-    # selector=CustomSelector(),   # optional; defaults provided
+locations_dict = {
+    "work": {
+        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
+    },
+    "business": {
+        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
+    },
+    "leisure": {
+        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
+        "2": {"coordinates": [10.0, 10.0], "potential": 100000.0},
+    },
+    "education": {
+        "3": {"coordinates": [10.0, 10.0], "potential": 5000.0},
+    },
+    "sports": {
+        "3": {"coordinates": [10.0, 10.0], "potential": 5000.0},
+    },
+}
+
+locations_tuple = (
+    {
+        "work":      np.array(["1"], dtype=object),
+        "business":  np.array(["1"], dtype=object),
+        "leisure":   np.array(["1", "2"], dtype=object),
+        "education": np.array(["3"], dtype=object),
+        "sports":    np.array(["3"], dtype=object),
+    },
+    {
+        "work":      np.array([[15.0, 13.0]], dtype=float),
+        "business":  np.array([[15.0, 13.0]], dtype=float),
+        "leisure":   np.array([[15.0, 13.0], [10.0, 10.0]], dtype=float),
+        "education": np.array([[10.0, 10.0]], dtype=float),
+        "sports":    np.array([[10.0, 10.0]], dtype=float),
+    },
+    {
+        "work":      np.array([100.0], dtype=float),
+        "business":  np.array([100.0], dtype=float),
+        "leisure":   np.array([100.0, 100000.0], dtype=float),
+        "education": np.array([5000.0], dtype=float),
+        "sports":    np.array([5000.0], dtype=float),
+    },
 )
 
-# 3) Input plans (long format). Required columns use default PlanColumns:
-#    person_id, leg_id, to_act_type, distance_m, from_x, from_y, to_x, to_y
+# 2) Create a runner context
+ctx = cs.setup(
+    locations_df=locations_df,  # or locations_dict= or locations_tuple=...
+    # --- optional parameters ---
+    # solver="carla",           # defaults to "carla"
+    # parameters={              # parameters for the solver (uses default values if not specified)
+    #     "number_of_branches": 50,
+    #     "candidates_complex_case": 100,
+    #     "candidates_two_leg_case": 40,
+    #     "anchor_strategy": "lower_middle",  # {'lower_middle','upper_middle','start','end'}
+    #     "selection_strategy_complex_case": "top_n_spatial_downsample",
+    #     "selection_strategy_two_leg_case": "top_n",
+    #     "max_iterations_complex_case": 100,
+    # },
+    # rng_seed=42,              # or pass a numpy Generator
+    # scorer=CustomScorer(),    # uses default scorer if not specified
+    # selector=CustomSelector() # uses default selector if not specified
+    # progress=tqdm,            # for progress bars, use your own if you want, no progress bars shown if not specified
+    # visualizer=CustomVisualizer(), 
+)
+
+# 3) Input plans. Minimum required columns:
+#    unique_person_id, unique_leg_id, to_act_type, distance_meters, from_x, from_y, to_x, to_y
 plans_df = pd.DataFrame([
     {"unique_person_id": "p1", "unique_leg_id": "p1-1", "to_act_type": "work", "distance_meters": 5000,
      "from_x": 10.0, "from_y": 10.0, "to_x": float("nan"), "to_y": float("nan")},
@@ -44,16 +98,18 @@ plans_df = pd.DataFrame([
 ])
 
 # 4) Solve
-placed_df, placement_plans, valid = cs.solve(ctx=ctx, plans_df=plans_df)
+result_df, result_plans, valid = cs.solve(ctx=ctx, plans_df=plans_df)
 
 print(valid)
-print(placed_df)
+print(result_df)
+print(result_plans)
+
 ```
 
 ## Returns
-Tuple:
-- **`placement_df`**: `pandas.DataFrame` (always returned). Results in df format.
-- **`placed_plans`**: `SegmentedPlans` (`frozendict[str, tuple[Segment, ...]]`) or `None`. Results in the internal `SegmentedPlans` (may be useful, else just ignore).
+A tuple of three elements (in order):
+- **`result_df`**: `pandas.DataFrame` (always returned). Placed plans in same df format as input plans.
+- **`result_plans`**: `SegmentedPlans` (`frozendict[str, tuple[Segment, ...]]`) or `None`. Results in the internal `SegmentedPlans` (may be useful, else just ignore).
 - **`valid`**: `bool`. Whether the output validation succeeded. 
 
 

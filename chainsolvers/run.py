@@ -89,126 +89,7 @@ def _instantiate_solver(
         raise AttributeError(f"Solver '{type(solver).__name__}' must implement a callable .solve(...).")
 
     return solver
-#
-# def run_population_solver(
-#     *,
-#     plans_df: pd.DataFrame,
-#     locations_dict: Optional[Mapping[str, Mapping[str, Mapping[str, Any]]]] = None,
-#     locations_df: Optional[pd.DataFrame] = None,
-#     solver: Optional[str] = None,
-#     parameters: dict = None,
-#
-#     scorer: Optional[Any] = None,
-#     selector: Optional[Any] = None,
-#
-#     stats: Optional[Any] = None, # Statstracker object
-#     rng: Optional[np.random.Generator] = None,
-#     rng_seed: Optional[int] = None,
-#     progress: Optional[Iterable] = None,   # e.g., tqdm; if None, a no-op shim is used
-#
-#     validate_plans: bool = True,
-#     forbid_negative_distance: bool = True,
-#     forbid_missing_distance: bool = True,
-#
-#     include_extras_on_export: bool = True,
-# ) -> Tuple[Optional[SegmentedPlans], pd.DataFrame]:
-#     """
-#
-#     """
-#     progress_fn = progress or _nop_progress
-#     rng_obj = _normalize_rng(rng=rng, rng_seed=rng_seed)
-#
-#     # Instantiate Locations
-#     if locations_dict is not None and locations_df is not None:
-#         raise ValueError("Cannot provide both locations_dict and locations_df.")
-#     elif locations_dict is not None:
-#         identifiers, coordinates, potentials = io.build_locations_payload_from_dict(locations_dict)
-#     elif locations_df is not None:
-#         identifiers, coordinates, potentials = io.build_locations_payload_from_df(locations_df)
-#     else:
-#         raise ValueError("Must provide either locations_dict or locations_df.")
-#     locations = Locations(identifiers, coordinates, potentials, stats)
-#
-#     # Instantiate scoring and selection
-#     scor = scorer or Scorer()
-#     selr = selector or Selector()
-#
-#     # Build name lookup EARLY and drop big inputs locally
-#     name_lookup: dict[str, str] = {}
-#     if locations_df is not None:
-#         name_lookup.update(io.build_name_lookup_from_df(locations_df))
-#         del locations_df
-#     if locations_dict is not None:
-#         name_lookup.update(io.build_name_lookup_from_dict(locations_dict))
-#         del locations_dict
-#
-#     # Instantiate solver
-#     solver_obj = _instantiate_solver(
-#         solver_name=solver,
-#         params=parameters,
-#         locations=locations,
-#         rng=rng_obj,
-#         progress=progress_fn,
-#         stats=stats,
-#         scorer=scor,
-#         selector=selr
-#     )
-#     if not getattr(solver_obj, "needs_segmented_plans", None) in (True, False):
-#         raise AttributeError(f"Solver '{type(solver_obj).__name__}' must define boolean 'needs_segmented_plans'.")
-#     if not hasattr(solver_obj, "solve") or not callable(getattr(solver_obj, "solve")):
-#         raise AttributeError(f"Solver '{type(solver_obj).__name__}' must implement a callable .solve(...).")
-#
-#     logger.debug("Initialized solver '%s' (needs_segmented_plans=%s).",
-#              type(solver_obj).__name__, solver_obj.needs_segmented_plans)
-#
-#     # Prepare input and run solver
-#     if solver_obj.needs_segmented_plans:
-#         logger.debug("Converting input plans DataFrame to SegmentedPlans...")
-#         plans_in = io.convert_to_segmented_plans(plans_df,
-#             validate=validate_plans,
-#             forbid_negative_distance=forbid_negative_distance,
-#             forbid_missing_distance=forbid_missing_distance
-#         )
-#         plans_in = io.segment_plans(plans_in)
-#
-#         logger.debug("Running solver.solve(plans=...)")
-#         res = solver_obj.solve(plans=plans_in)
-#     else:
-#         logger.debug("Running solver.solve(df=...) (no conversion to SegmentedPlans)")
-#         res = solver_obj.solve(df=plans_df)
-#
-#     # Normalize solver return
-#     result_df = None
-#     if isinstance(res, pd.DataFrame):
-#         result_df = res
-#         result_plans = None
-#     elif isinstance(res, frozendict):
-#         result_plans = res  # already a SegmentedPlans
-#     elif isinstance(res, dict):
-#         # If a plain dict sneaks through in internal code, normalize to frozendict
-#         result_plans = frozendict(res)
-#     else:
-#         raise TypeError(
-#             f"Solver returned unsupported type {type(res).__name__}. "
-#             "Expected SegmentedPlans (frozendict) or pandas.DataFrame."
-#         )
-#
-#     # Ensure DataFrame and enrich with names
-#     if result_df is None:
-#         logger.debug("Converting SegmentedPlans result to DataFrame...")
-#         assert result_plans is not None
-#         result_df = io.segmented_plans_to_dataframe(
-#             result_plans, include_extras=include_extras_on_export
-#         )
-#
-#     if name_lookup:
-#         logger.debug("Enriching output DataFrame with human-readable names...")
-#         result_df = io.enrich_plans_df_with_names(
-#             result_df,
-#             name_lookup=name_lookup,
-#         )
-#
-#     return result_plans, result_df
+
 
 def setup(
     *,
@@ -294,7 +175,7 @@ def solve(
     forbid_negative_distance: bool = True,
     forbid_missing_distance: bool = True,
     include_extras_on_export: bool = True,
-) -> Tuple[Optional["SegmentedPlans"], pd.DataFrame, bool]:
+) -> Tuple[pd.DataFrame, Optional["SegmentedPlans"], bool]:
 
     solver_obj = ctx.solver
 

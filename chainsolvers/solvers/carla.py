@@ -9,9 +9,9 @@ from chainsolvers.types import Segment
 
 @dataclass(slots=True)
 class CarlaConfig:
-    number_of_branches: int = 50
+    number_of_branches: int = 30
     candidates_complex_case: int = 100
-    candidates_two_leg_case: int = 100
+    candidates_two_leg_case: int = 40
     anchor_strategy: str = "lower_middle"   # {'lower_middle','upper_middle','start','end'}
     selection_strategy_complex_case: str = "top_n_spatial_downsample"
     selection_strategy_two_leg_case: str = "top_n"

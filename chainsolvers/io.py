@@ -218,8 +218,8 @@ def build_locations_payload_from_dict(
     -------
     data = {
       "home": {
-          "h1": {"coordinates": [10, 20], "capacity": 3.0},
-          "h2": {"coordinates": [15, 25]},  # capacity missing → 0.0
+          "h1": {"coordinates": [10, 20], "potential": 3.0},
+          "h2": {"coordinates": [15, 25]},  # potential missing → 0.0
       }
     }
     ids, coords, pots = build_locations_payload_from_dict(data)
