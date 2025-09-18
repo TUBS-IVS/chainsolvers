@@ -6,7 +6,8 @@
 # freed during long solves.
 
 from __future__ import annotations
-from typing import Optional, Iterable, Mapping, Any, Type, Tuple
+from typing import Optional, Iterable, Mapping, Any, Type, Tuple, Dict
+import os
 
 import logging
 import pandas as pd
@@ -48,7 +49,7 @@ def _normalize_rng(rng: Optional[Any] = None, rng_seed: Optional[int] = None) ->
 
 def _instantiate_solver(
     *,
-    solver_name: Optional[str] = None,
+    solver_name: str,
     params: Optional[dict] = None,
     locations: Locations,
     rng: np.random.Generator,
@@ -59,9 +60,6 @@ def _instantiate_solver(
     visualizer: Optional[Any] = None
 ) -> Any:
 
-    if solver_name is None:
-        solver_name = next(iter(SOLVER_REGISTRY)) # First in dict
-        logger.info("No solver name provided; using '%s'.", solver_name)
     try:
         SolverCls = SOLVER_REGISTRY[solver_name]
     except KeyError as e:
@@ -117,6 +115,22 @@ def setup(
     progress_fn = progress or _nop_progress
     rng_obj = _normalize_rng(rng=rng, rng_seed=rng_seed)
 
+    if solver is None:
+        solver = next(iter(SOLVER_REGISTRY)) # First in dict
+        logger.info("No solver name provided; using '%s'.", solver)
+
+    # Optionally construct a visualizer if a path-like or string is provided.
+    # We import lazily so projects without viz extras installed are unaffected unless used.
+    viz_obj = visualizer
+    if isinstance(visualizer, (str, os.PathLike)):
+        try:
+            from .visualizer import Visualizer as _VizCls
+        except ImportError as e:
+            raise ImportError(
+                "Visualizer requires optional dependencies. Install with: pip install 'chainsolvers[viz]'"
+            ) from e
+        viz_obj = _VizCls(savedir=str(visualizer), map_prefix=solver)
+
     # --- Locations
     if (locations_dict is None) == (locations_df is None) == (locations_tuple is None):
         raise ValueError("Provide exactly one of locations_dict, locations_df, or locations_tuple.")
@@ -148,7 +162,7 @@ def setup(
         stats=stats,
         scorer=scor,
         selector=selr,
-        visualizer = visualizer
+        visualizer=viz_obj
     )
 
     needs_flag = getattr(solver_obj, "needs_segmented_plans", None)
@@ -219,5 +233,15 @@ def solve(
 
     valid = io.validate_output_plans_df(result_df)
 
-    return result_df, result_plans, valid
+    viz = getattr(solver_obj, "visualizer", None)
+    if viz is not None:
+        logger.info("Running visualizer...")
+        for meth in ("visualize", "visualize_levels"):
+            fn = getattr(viz, meth, None)
+            if callable(fn):
+                try:
+                    fn()
+                except Exception as e:
+                    logger.warning("Visualizer.%s failed: %s", meth, e)
 
+    return result_df, result_plans, valid
