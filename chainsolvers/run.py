@@ -50,7 +50,7 @@ def _instantiate_solver(
     *,
     solver_name: Optional[str] = None,
     params: Optional[dict] = None,
-    locations: Any,
+    locations: Locations,
     rng: np.random.Generator,
     progress: Optional[Any] = None,
     stats: Optional[Any] = None,
@@ -215,6 +215,7 @@ def solve(
 
     if ctx.name_lookup:
         result_df = io.enrich_plans_df_with_names(result_df, name_lookup=ctx.name_lookup)
+    result_df = io.enrich_plans_df_with_potentials(result_df, locations=ctx.locations)
 
     valid = io.validate_output_plans_df(result_df)
 

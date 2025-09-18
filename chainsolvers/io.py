@@ -547,6 +547,45 @@ def enrich_plans_df_with_names(
         df[plan_cols.to_act_name] = mapped
     return df
 
+def enrich_plans_df_with_potentials(df, *, locations) -> "pd.DataFrame":
+    """
+    Add to_act_potential column by looking up potentials from Locations using
+    (to_act_type, to_act_identifier). If required columns are missing or df is
+    empty, return df unchanged.
+
+    :param df: plans dataframe (expects 'to_act_type' and 'to_act_identifier')
+    :param locations: Locations instance (provides identifiers and potentials)
+    :return: new dataframe with 'to_act_potential' (float) added when possible
+    """
+    # Defensive checks
+    if df is None or len(df) == 0:
+        return df
+    to_type_col = PlanColumns.to_act_type
+    to_id_col = PlanColumns.to_act_identifier
+    if to_type_col not in df.columns or to_id_col not in df.columns:
+        return df
+
+    # Prepare id->potential mapping per activity type
+    type_maps = {}
+    for act_type, ids in locations.identifiers.items():
+        pots = locations.potentials.get(act_type)
+        if pots is None:
+            continue
+        # Build a plain dict for mapping
+        type_maps[act_type] = {id_: float(pot) for id_, pot in zip(ids, pots)}
+
+    # Populate new column
+    out = df.copy()
+    col_name = "to_act_potential"
+    out[col_name] = np.nan
+
+    # Assign per-type to avoid custom apply over rows
+    for act_type, id_to_pot in type_maps.items():
+        mask = out[to_type_col] == act_type
+        if mask.any():
+            out.loc[mask, col_name] = out.loc[mask, to_id_col].map(id_to_pot)
+
+    return out
 
 def _is_xy(v: Any) -> bool:
     """True iff v is a finite ndarray of shape (2,)."""
