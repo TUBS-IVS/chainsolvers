@@ -86,7 +86,7 @@ ctx = cs.setup(
     # scorer=CustomScorer(),    # uses default scorer if not specified
     # selector=CustomSelector() # uses default selector if not specified
     # progress=tqdm,            # for progress bars, use your own if you want, no progress bars shown if not specified
-    # visualizer=CustomVisualizer(), 
+    # visualizer=None,          # "out/maps" will create a default Visualizer(savedir="out/maps") or pass your own CustomVisualizer()
 )
 
 # 3) Input plans. Minimum required columns:
