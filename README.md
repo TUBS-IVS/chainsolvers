@@ -19,27 +19,28 @@ logging.basicConfig(level=logging.INFO)
 # df is probably the easiest coming from a csv, geopackage or similar, tuple is the internal format
 locations_df = pd.DataFrame([
     # minimal columns: id, act_type, x, y
-    {"activities": "work; business; leisure", "id": "1", "x": 15.0, "y": 13.0, "potential": 100.0, "name": "Business Factory"},
-    {"activities": "leisure", "id": "2", "x": 10.0, "y": 10.0, "potential": 100000.0, "name": "Central Park"},
-    {"activities": "education; sports", "id": "3", "x": 10.0, "y": 10.0, "potential": 5000.0, "name": "Big School"},
+    # optional: name, potentials (plural, one per possible activity type at this location, set to 0 if not specified)
+    {"activities": "work; business; leisure", "id": "1", "x": 15.0, "y": 13.0, "name": "Business Factory"},
+    {"activities": "leisure", "id": "2", "x": 10.0, "y": 10.0, "potentials": 100000.0, "name": "Central Park"},
+    {"activities": "education; sports", "id": "3", "x": 10.0, "y": 10.0, "potentials": "5000.0; 60", "name": "Big School"},
 ])
 
 locations_dict = {
     "work": {
-        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
+        "1": {"coordinates": [15.0, 13.0], "name": "Business Factory"},
     },
     "business": {
-        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
+        "1": {"coordinates": [15.0, 13.0], "name": "Business Factory"},
     },
     "leisure": {
-        "1": {"coordinates": [15.0, 13.0], "potential": 100.0},
-        "2": {"coordinates": [10.0, 10.0], "potential": 100000.0},
+        "1": {"coordinates": [15.0, 13.0], "name": "Business Factory"},
+        "2": {"coordinates": [10.0, 10.0], "potential": 100000.0, "name": "Central Park"}, # potential, singular
     },
     "education": {
-        "3": {"coordinates": [10.0, 10.0], "potential": 5000.0},
+        "3": {"coordinates": [10.0, 10.0], "potential": 5000.0, "name": "Big School"},
     },
     "sports": {
-        "3": {"coordinates": [10.0, 10.0], "potential": 5000.0},
+        "3": {"coordinates": [10.0, 10.0], "potential": 60.0, "name": "Big School"},
     },
 }
 
@@ -59,11 +60,11 @@ locations_tuple = (
         "sports":    np.array([[10.0, 10.0]], dtype=float),
     },
     {
-        "work":      np.array([100.0], dtype=float),
-        "business":  np.array([100.0], dtype=float),
-        "leisure":   np.array([100.0, 100000.0], dtype=float),
+        "work":      np.array([0], dtype=float),
+        "business":  np.array([0], dtype=float),
+        "leisure":   np.array([0, 100000.0], dtype=float),
         "education": np.array([5000.0], dtype=float),
-        "sports":    np.array([5000.0], dtype=float),
+        "sports":    np.array([60.0], dtype=float),
     },
 )
 
