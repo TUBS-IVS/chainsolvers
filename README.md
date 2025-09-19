@@ -4,6 +4,10 @@
 
 ## Quickstart
 
+```python
+pip install chainsolvers
+```
+
 Use the two-step runner: `setup(...) -> RunnerContext` and `solve(ctx=..., plans_df=...)`.
 
 ```python
