@@ -19,8 +19,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # 1) Candidate locations
-# Provide exactly one of: locations_df, locations_dict, or locations_tuple (these are just different ways of representing the same thing)
-# df is probably the easiest coming from a csv, geopackage or similar, tuple is the internal format
+# Provide exactly one of: locations_df, locations_dict, or locations_tuple (these are just different ways of representing
+the same thing)
 locations_df = pd.DataFrame([
     # minimal columns: id, act_type, x, y
     # optional: name, potentials (plural, one per possible activity type at this location, set to 0 if not specified)
@@ -90,7 +90,7 @@ ctx = cs.setup(
     # scorer=CustomScorer(),    # uses default scorer if not specified
     # selector=CustomSelector() # uses default selector if not specified
     # progress=tqdm,            # for progress bars, use your own if you want, no progress bars shown if not specified
-    # visualizer=None,          # "out/maps" will create a default Visualizer(savedir="out/maps") or pass your own CustomVisualizer()
+    # visualizer=None,          # "out/maps" will create a default Visualizer(savedir="out/maps") or pass CustomVisualizer()
 )
 
 # 3) Input plans. Minimum required columns:
