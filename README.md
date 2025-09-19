@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 
 # 1) Candidate locations
 # Provide exactly one of: locations_df, locations_dict, or locations_tuple (these are just different ways of representing
-the same thing)
+# the same thing)
 locations_df = pd.DataFrame([
     # minimal columns: id, act_type, x, y
     # optional: name, potentials (plural, one per possible activity type at this location, set to 0 if not specified)
