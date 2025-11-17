@@ -12,6 +12,7 @@ dependencies = [
     "pandas",
     "frozendict",
     "scipy",
+    "pytest>=8.4.2",
 ]
 
 classifiers = [

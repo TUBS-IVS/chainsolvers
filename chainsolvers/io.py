@@ -29,7 +29,7 @@ class PlanColumns:
     to_x: str = "to_x"
     to_y: str = "to_y"
 
-    # Optional columns (set to None if unused)
+    # Optional columns (sets it to None if unused)
     mode: Optional[str] = "mode"
     to_act_is_main: Optional[str] = "to_act_is_main"
     to_act_identifier: Optional[str] = "to_act_identifier"
