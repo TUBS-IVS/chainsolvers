@@ -19,6 +19,7 @@ from .locations import Locations
 from .scoring_selection import Scorer, Selector
 from .solvers.carla import Carla
 from .solvers.carla_plus import CarlaPlus
+from. types import PlanColumns, SegmentedPlans, Households
 from . import io
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,15 @@ def _instantiate_solver(
     )
 
     # Enforce contract early
-    if not hasattr(solver, "needs_segmented_plans"):
-        raise AttributeError(f"Solver '{type(solver).__name__}' must define boolean 'needs_segmented_plans'.")
+    if not hasattr(solver, "wanted_format"):
+        raise AttributeError(
+            f"Solver '{type(solver).__name__}' must define string 'wanted_format' "
+            "(e.g. 'segmented_plans', 'segmented_plans_households', or 'df')."
+        )
+    if not hasattr(solver, "required_df_columns") or not callable(getattr(solver, "required_df_columns")):
+        raise AttributeError(
+            f"Solver '{type(solver).__name__}' must implement required_df_columns(self, PlanColumns) -> set[str]."
+        )
     if not hasattr(solver, "solve") or not callable(getattr(solver, "solve")):
         raise AttributeError(f"Solver '{type(solver).__name__}' must implement a callable .solve(...).")
 
@@ -165,12 +173,6 @@ def setup(
         visualizer=viz_obj
     )
 
-    needs_flag = getattr(solver_obj, "needs_segmented_plans", None)
-    if needs_flag not in (True, False):
-        raise AttributeError(f"Solver '{type(solver_obj).__name__}' must define boolean 'needs_segmented_plans'.")
-    if not callable(getattr(solver_obj, "solve", None)):
-        raise AttributeError(f"Solver '{type(solver_obj).__name__}' must implement .solve(...).")
-
     return RunnerContext(
         locations=locations,
         solver=solver_obj,
@@ -185,27 +187,47 @@ def solve(
     *,
     ctx: RunnerContext,
     plans_df: pd.DataFrame,
-
     forbid_negative_distance: bool = True,
     forbid_missing_distance: bool = True,
     include_extras_on_export: bool = True,
 ) -> Tuple[pd.DataFrame, Optional["SegmentedPlans"], bool]:
 
     solver_obj = ctx.solver
+    cols = PlanColumns()
 
-    io.validate_input_plans_df(plans_df)
+    # Ask the solver which DF columns it needs
+    required_cols = solver_obj.required_df_columns(cols)
 
-    # Prepare input for solver
-    if solver_obj.needs_segmented_plans:
+    io.validate_input_plans_df(plans_df, required_cols=required_cols)
+    io.summarize_plans_df(plans_df)
+
+    fmt = solver_obj.wanted_format
+
+    # --- Build input structure based on wanted_format ----------------------------
+    if fmt == "segmented_plans":
         plans_in = io.convert_to_segmented_plans(
             plans_df,
+            required_cols=required_cols,
             forbid_negative_distance=forbid_negative_distance,
             forbid_missing_distance=forbid_missing_distance,
         )
         plans_in = io.segment_plans(plans_in)
         res = solver_obj.solve(plans=plans_in)
-    else:
+
+    elif fmt == "households":
+        households_in = io.convert_to_households(
+            plans_df,
+            required_cols=required_cols,
+            forbid_negative_distance=forbid_negative_distance,
+            forbid_missing_distance=forbid_missing_distance,
+        )
+        res = solver_obj.solve(households=households_in)
+
+    elif fmt == "df":
         res = solver_obj.solve(df=plans_df)
+
+    else:
+        raise ValueError(f"Unknown wanted_format {fmt!r}")
 
     # Normalize returns
     result_plans = None

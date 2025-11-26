@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Dict, Mapping, Tuple, Any, Optional, List
+from typing import Iterable, Dict, Mapping, Tuple, Any, Optional, List, Set
 import difflib
 import numpy as np
 import pandas as pd
 from collections import defaultdict
 from frozendict import frozendict
 
-from .types import Leg, SegmentedPlans
+from .types import Leg, SegmentedPlans, LocationColumns, PlanColumns
 from .helpers import to_bool
 
 import logging
@@ -16,182 +16,290 @@ import logging
 logger = logging.getLogger(__name__)
 
 # --- Plans --------------------------------------------------------------------
-# --- Column spec --------------------------------------------------------------
-
-@dataclass(frozen=True)
-class PlanColumns:
-    person_id: str = "unique_person_id"
-    unique_leg_id: str = "unique_leg_id"
-    to_act_type: str = "to_act_type"
-    leg_distance_m: str = "distance_meters"
-    from_x: str = "from_x"
-    from_y: str = "from_y"
-    to_x: str = "to_x"
-    to_y: str = "to_y"
-
-    # Optional columns (sets it to None if unused)
-    mode: Optional[str] = "mode"
-    to_act_is_main: Optional[str] = "to_act_is_main"
-    to_act_identifier: Optional[str] = "to_act_identifier"
-    to_act_name: Optional[str] = "to_act_name"
-
-    def required(self) -> set[str]:
-        return {
-            self.person_id, self.unique_leg_id, self.to_act_type, self.leg_distance_m,
-            self.from_x, self.from_y, self.to_x, self.to_y
-        }
-
-    def optional(self) -> set[str]:
-        return {c for c in (self.mode, self.to_act_is_main, self.to_act_identifier, self.to_act_name) if c}
-
-    def all(self) -> set[str]:
-        return self.required() | self.optional()
-
-
-def expected_columns() -> dict[str, list[str]]:
-    """Return required/optional column names for docs and error messages."""
-    c = PlanColumns()
-    return {"required": sorted(c.required()), "optional": sorted(c.optional())}
-
 
 def _suggest(similar_to: str, universe: Iterable[str], n: int = 3) -> list[str]:
     return difflib.get_close_matches(similar_to, list(universe), n=n, cutoff=0.6)
 
 
-def validate_input_plans_df(df: pd.DataFrame, strict: bool = False) -> None:
+def validate_input_plans_df(df: pd.DataFrame, required_cols: Iterable[str]) -> None:
     """
-    Validate presence of required columns (and, if strict=True, that all configured optional names exist).
+    Validate that all required_cols are present in df.
     Raises ValueError with helpful suggestions if something is missing.
     """
-
-    c = PlanColumns()
     present = set(df.columns)
+    required = [c for c in required_cols if c]  # drop None / ""
+    missing = [c for c in required if c not in present]
 
-    missing_required = [name for name in c.required() if name not in present]
-    missing_optional = [name for name in c.optional() if name not in present]
+    if not missing:
+        return
 
-    msgs: list[str] = []
+    msgs: list[str] = ["Missing required columns:"]
+    for name in missing:
+        sugg = _suggest(name, present)
+        hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
+        msgs.append(hint)
 
-    if missing_required:
-        msgs.append("Missing required columns:")
-        for name in missing_required:
-            sugg = _suggest(name, present)
-            hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
-            msgs.append(hint)
+    raise ValueError("\n".join(msgs))
 
-    if strict and missing_optional:
-        msgs.append("Missing optional columns (set the respective field to None in PlanColumns if unused):")
-        for name in missing_optional:
-            sugg = _suggest(name, present)
-            hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
-            msgs.append(hint)
 
-    if msgs:
-        need = expected_columns()
-        msgs.append(f"Expected → required={need['required']}, optional={need['optional']}")
-        raise ValueError("\n".join(msgs))
+def get_required_df_columns(required_leg_fields: Iterable[str]) -> Set[str]:
+    """
+    Given a set of required Leg field names, return the flat set of DF column names
+    needed to populate them, using PlanColumns.
 
-    # --- Helpful summary ------------------------------------------------------
-    try:
-        n_persons = df[c.person_id].nunique(dropna=True)
-        n_rows = len(df)
-        logger.info("Input summary: %d legs across %d persons.", n_rows, n_persons)
-    except Exception:
-        logger.error("Could not compute summary stats.")
-        pass
+    Special cases:
+    - from_location -> (from_x, from_y)
+    - to_location   -> (to_x, to_y)
+    Everything else is taken 1:1 from PlanColumns (if non-None).
+    """
+    c = PlanColumns()
+    out: set[str] = set()
+
+    for field in required_leg_fields:
+        if field == "from_location":
+            out.add(c.from_x)
+            out.add(c.from_y)
+        elif field == "to_location":
+            out.add(c.to_x)
+            out.add(c.to_y)
+        else:
+            colname = getattr(c, field, None)
+            if isinstance(colname, str):
+                out.add(colname)
+    return out
+
+
+def build_legs(
+    df: pd.DataFrame,
+    *,
+    required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
+) -> list[Leg]:
+    """
+    Core ingestion: construct Leg objects from a DataFrame, using PlanColumns.
+
+    - Only fields listed in `required_leg_fields` are populated from DF.
+    - All other Leg fields are set to None.
+    - Column presence is assumed to be validated upstream.
+    - Distance constraints are enforced here via forbid_* flags.
+    """
+    c = PlanColumns()
+    col_index = {name: i for i, name in enumerate(df.columns)}
+
+    def gi(row: tuple, colname: str | None):
+        if not colname:
+            return None
+        idx = col_index.get(colname)
+        if idx is None:
+            return None
+        try:
+            return row[idx]
+        except IndexError:
+            return None
+
+    def safe_xy(x, y):
+        if x is None or y is None:
+            return None
+        try:
+            xv, yv = float(x), float(y)
+        except Exception:
+            return None
+        if not (np.isfinite(xv) and np.isfinite(yv)):
+            return None
+        return np.array([xv, yv], dtype=np.float64)
+
+    legs: list[Leg] = []
+
+    for row in df.itertuples(index=False, name=None):
+
+        # --- unique_leg_id ----------------------------------------------------
+        unique_leg_id = None
+        if "unique_leg_id" in required_leg_fields:
+            val = gi(row, c.unique_leg_id)
+            unique_leg_id = str(val) if val is not None else None
+
+        # --- distance ---------------------------------------------------------
+        distance = None
+        if "distance" in required_leg_fields:
+            raw = gi(row, c.leg_distance_m)
+
+            # Missing?
+            if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+                if forbid_missing_distance:
+                    raise ValueError(f"Missing distance for leg '{unique_leg_id}'.")
+                distance = None
+            else:
+                try:
+                    distance = float(raw)
+                except Exception:
+                    if forbid_missing_distance:
+                        raise ValueError(
+                            f"Non-numeric distance {raw!r} for leg '{unique_leg_id}'."
+                        )
+                    distance = None
+
+            # Negative?
+            if (
+                forbid_negative_distance
+                and distance is not None
+                and distance < 0
+            ):
+                raise ValueError(
+                    f"Negative distance {distance} for leg '{unique_leg_id}'."
+                )
+
+        # --- from/to locations ------------------------------------------------
+        from_location = None
+        if "from_location" in required_leg_fields:
+            fx = gi(row, c.from_x)
+            fy = gi(row, c.from_y)
+            from_location = safe_xy(fx, fy)
+
+        to_location = None
+        if "to_location" in required_leg_fields:
+            tx = gi(row, c.to_x)
+            ty = gi(row, c.to_y)
+            to_location = safe_xy(tx, ty)
+
+        # --- activity type / identifier / main flag ---------------------------
+        to_act_type = None
+        if "to_act_type" in required_leg_fields:
+            val = gi(row, c.to_act_type)
+            to_act_type = str(val) if val is not None else None
+
+        to_act_identifier = None
+        if "to_act_identifier" in required_leg_fields:
+            val = gi(row, c.to_act_identifier)
+            to_act_identifier = str(val) if val is not None else None
+
+        to_act_is_main_act = None
+        if "to_act_is_main_act" in required_leg_fields:
+            val = gi(row, c.to_act_is_main)
+            # leave interpretation (0/1 vs bool) to downstream if needed
+            to_act_is_main_act = bool(val) if val is not None else None
+
+        # --- mode -------------------------------------------------------------
+        mode = None
+        if "mode" in required_leg_fields:
+            val = gi(row, c.mode)
+            mode = str(val) if val is not None else None
+
+        # --- times ------------------------------------------------------------
+        dep_time_s = None
+        if "dep_time_s" in required_leg_fields:
+            val = gi(row, c.dep_time_s)
+            try:
+                dep_time_s = int(val) if val is not None else None
+            except Exception:
+                dep_time_s = None
+
+        arr_time_s = None
+        if "arr_time_s" in required_leg_fields:
+            val = gi(row, c.arr_time_s)
+            try:
+                arr_time_s = int(val) if val is not None else None
+            except Exception:
+                arr_time_s = None
+
+        # Connection fields & extras are always None at ingest
+        leg = Leg(
+            unique_leg_id=unique_leg_id,          # type: ignore[arg-type]
+            distance=distance,                    # type: ignore[arg-type]
+            from_location=from_location,
+            to_location=to_location,
+            to_act_type=to_act_type,              # type: ignore[arg-type]
+            to_act_identifier=to_act_identifier,
+            to_act_is_main_act=to_act_is_main_act,
+            mode=mode,
+            dep_time_s=dep_time_s,
+            arr_time_s=arr_time_s,
+            conn_leader_id=None,
+            conn_to_act=None,
+            conn_to_mode=None,
+            extras=None,
+        )
+
+        legs.append(leg)
+
+    return legs
+
+
 
 def convert_to_segmented_plans(
     df: pd.DataFrame,
     *,
-    forbid_negative_distance: bool = True,
-    forbid_missing_distance: bool = True,
+    required_leg_fields: Set[str],
 ) -> SegmentedPlans:
     """
-    Convert a long-format trips DataFrame into SegmentedPlans using the default PlanColumns spec.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Input table containing at least the required columns defined by `PlanColumns`.
-    forbid_negative_distance : bool, default False
-        If True, raises on any leg with distance < 0.
-
-    Returns
-    -------
-    SegmentedPlans
-        frozendict mapping person_id -> tuple[Leg, ...]
+    Convert a trips DataFrame into SegmentedPlans (person -> tuple[Leg, ...]),
+    using only the Leg fields listed in `required_leg_fields`.
     """
     c = PlanColumns()
 
-    def safe_xy(x: Any, y: Any) -> Optional[np.ndarray]:
-        # Return (2,) float64 if both present and finite; else None.
-        if pd.notna(x) and pd.notna(y):
-            xv, yv = float(x), float(y)
-            if np.isfinite(xv) and np.isfinite(yv):
-                return np.array([xv, yv], dtype=np.float64)
-        return None
+    if not c.person_id or c.person_id not in df.columns:
+        raise ValueError(f"Person id column '{c.person_id}' is missing from DataFrame.")
 
-    # Pre-resolve column indices once
-    col_index = {name: i for i, name in enumerate(df.columns)}
+    required_cols = get_required_df_columns(required_leg_fields | {"unique_leg_id", "distance"})
+    # Add person_id for grouping
+    if c.person_id:
+        required_cols.add(c.person_id)
 
-    def gi(row_tuple: tuple, name: Optional[str], default=None): # Needed bcs we use itertuples not iterrows
-        if not name:
-            return default
-        idx = col_index.get(name)
-        if idx is None:
-            return default
-        try:
-            return row_tuple[idx]
-        except IndexError:
-            return default
+    validate_input_plans_df(df, required_cols)
 
-    has_mode = bool(c.mode and c.mode in col_index)
-    has_main = bool(c.to_act_is_main and c.to_act_is_main in col_index)
-    has_ident = bool(c.to_act_identifier and c.to_act_identifier in col_index)
+    legs = build_legs(df, required_leg_fields=required_leg_fields | {"unique_leg_id", "distance"})
 
+    # Group by person_id in row order
+    person_ids = df[c.person_id].astype(str).tolist()
     buckets: dict[str, list[Leg]] = defaultdict(list)
 
-    for row in df.itertuples(index=False, name=None):
-        person_id = gi(row, c.person_id)
+    for pid, leg in zip(person_ids, legs):
+        buckets[pid].append(leg)
 
-        to_act_is_main_val = to_bool(gi(row, c.to_act_is_main)) if has_main else None
+    # For now, like before: person_id -> tuple[Leg, ...]
+    return frozendict({pid: tuple(legs_for_person) for pid, legs_for_person in buckets.items()})
 
-        dist_raw = gi(row, c.leg_distance_m)
+def summarize_plans_df(
+    df: pd.DataFrame,
+    *,
+    cols: PlanColumns = PlanColumns()
+) -> None:
+    """
+    Log a best-effort summary of the plans DataFrame.
+    Never raises. Only logs.
+    """
+    try:
+        n_rows = len(df)
+    except Exception:
+        logger.info("Input summary: could not determine number of rows.")
+        return
 
-        if dist_raw is None or (isinstance(dist_raw, float) and dist_raw != dist_raw):  # None or NaN
-            if forbid_missing_distance:
-                raise ValueError(f"Missing distance for person '{person_id}'.")
-            dist = 0.0
-        else:
-            dist = float(dist_raw)
+    # --- Optional: count persons if column available -------------------------
+    n_persons = None
+    if cols.person_id and cols.person_id in df.columns:
+        try:
+            n_persons = df[cols.person_id].nunique(dropna=True)
+        except Exception:
+            n_persons = None
 
-        if forbid_negative_distance and dist < 0:
-            raise ValueError(f"Negative distance for person '{person_id}': {dist}")
+    # --- Optional: count households ------------------------------------------
+    n_households = None
+    if cols.household_id and cols.household_id in df.columns:
+        try:
+            n_households = df[cols.household_id].nunique(dropna=True)
+        except Exception:
+            n_households = None
 
-        leg = Leg(
-            unique_leg_id=str(gi(row, c.unique_leg_id)),
-            from_location=safe_xy(gi(row, c.from_x), gi(row, c.from_y)),
-            to_location=safe_xy(gi(row, c.to_x), gi(row, c.to_y)),
-            distance=dist,
-            to_act_type=(gi(row, c.to_act_type) or "unknown"),
-            to_act_identifier=(gi(row, c.to_act_identifier) if has_ident else None),
-            mode=(gi(row, c.mode) if has_mode else None),
-            to_act_is_main_act=to_act_is_main_val,
-            extras=None
-        )
+    # --- Compose informative message -----------------------------------------
+    parts = [f"{n_rows} legs"]
 
-        buckets[str(person_id)].append(leg)
+    if n_persons is not None:
+        parts.append(f"{n_persons} persons")
+    if n_households is not None:
+        parts.append(f"{n_households} households")
 
-    return frozendict({pid: tuple(legs) for pid, legs in buckets.items()})
-
-
-def show_expected_columns() -> str:
-    """Pretty one-liner for CLI/docs to show users what to provide."""
-    e = expected_columns()
-    return (
-        "Required: " + ", ".join(e["required"]) + "\n"
-        "Optional: " + (", ".join(e["optional"]) if e["optional"] else "—")
-    )
+    msg = "Input summary: " + ", ".join(parts) + "."
+    logger.info(msg)
 
 
 # --- Locations --------------------------------------------------------------------
@@ -287,23 +395,6 @@ def build_locations_payload_from_dict(
     return identifiers, coordinates, potentials
 
 
-@dataclass(frozen=True)
-class LocationColumns:
-    """
-    Column names in the input (Geo)DataFrame.
-    """
-    id: str = "id"
-    activities: str = "activities"
-    x: Optional[str] = "x"
-    y: Optional[str] = "y"
-    potentials: Optional[str] = "potentials"
-    name: Optional[str] = "name"
-
-    def required(self) -> set[str]:
-        req = {self.id, self.activities}
-        if self.x and self.y:
-            req |= {self.x, self.y}
-        return req
 
 
 def build_locations_payload_from_df(

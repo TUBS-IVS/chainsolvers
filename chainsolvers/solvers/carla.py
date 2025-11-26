@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from frozendict import frozendict
 
 from chainsolvers.locations import Locations
-from chainsolvers.types import Segment
+from chainsolvers.types import Segment, PlanColumns
 
 
 @dataclass(slots=True)
@@ -56,7 +56,19 @@ class Carla:
         or if recursion reaches an impossible state.
     """
 
-    needs_segmented_plans = True
+    wanted_format: str = "segmented_plans"
+    def required_df_columns(self, c: PlanColumns) -> set[str]:
+        return {
+            c.person_id,
+            c.unique_leg_id,
+            c.to_act_type,
+            c.leg_distance_m,
+            # These can be None for most, but we do need start and end locations.
+            c.from_x,
+            c.from_y,
+            c.to_x,
+            c.to_y
+        }
 
     def __init__(
         self,

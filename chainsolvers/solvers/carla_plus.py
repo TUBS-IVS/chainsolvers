@@ -2,7 +2,7 @@ import numpy as np
 from typing import Tuple, Optional, Any
 from dataclasses import dataclass
 from chainsolvers.locations import Locations
-from chainsolvers.types import SegmentedPlans, Segment
+from chainsolvers.types import SegmentedPlans, Segment, PlanColumns
 
 
 @dataclass(slots=True)
@@ -21,7 +21,24 @@ class CarlaPlus:
     Placeholder for the CARLA+ solver implementation.
     """
 
-    needs_segmented_plans = True
+    wanted_format: str = "segmented_plans_households"
+    def required_df_columns(self, c: PlanColumns) -> set[str]:
+        return {
+            c.household_id,
+            c.person_id,
+            c.unique_leg_id,
+            c.to_act_type,
+            c.leg_distance_m,
+            # These can be None for most, but we do need start and end locations.
+            c.from_x,
+            c.from_y,
+            c.to_x,
+            c.to_y,
+            c.mode,
+            c.dep_time_s,
+            c.arr_time_s,
+
+        }
 
     def __init__(
         self,
