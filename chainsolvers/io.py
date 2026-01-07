@@ -230,24 +230,37 @@ def convert_to_segmented_plans(
     df: pd.DataFrame,
     *,
     required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
 ) -> SegmentedPlans:
     """
     Convert a trips DataFrame into SegmentedPlans (person -> tuple[Leg, ...]),
-    using only the Leg fields listed in `required_leg_fields`.
+    using the Leg fields specified by the solver in `required_leg_fields`.
+
+    Optional fields like to_act_identifier are populated if present in the DataFrame,
+    even if not explicitly required by the solver.
     """
     c = PlanColumns()
 
     if not c.person_id or c.person_id not in df.columns:
         raise ValueError(f"Person id column '{c.person_id}' is missing from DataFrame.")
 
-    required_cols = get_required_df_columns(required_leg_fields | {"unique_leg_id", "distance"})
-    # Add person_id for grouping
-    if c.person_id:
-        required_cols.add(c.person_id)
+    # Start with what the solver requires
+    leg_fields_to_use = set(required_leg_fields)
 
-    validate_input_plans_df(df, required_cols)
+    # Optional fields - populate if present in DataFrame, but don't require them
+    optional_leg_fields = {"to_act_identifier"}
+    for field in optional_leg_fields:
+        col = getattr(c, field, None)
+        if col and col in df.columns:
+            leg_fields_to_use.add(field)
 
-    legs = build_legs(df, required_leg_fields=required_leg_fields | {"unique_leg_id", "distance"})
+    legs = build_legs(
+        df,
+        required_leg_fields=leg_fields_to_use,
+        forbid_negative_distance=forbid_negative_distance,
+        forbid_missing_distance=forbid_missing_distance,
+    )
 
     # Group by person_id in row order
     person_ids = df[c.person_id].astype(str).tolist()
@@ -258,6 +271,63 @@ def convert_to_segmented_plans(
 
     # For now, like before: person_id -> tuple[Leg, ...]
     return frozendict({pid: tuple(legs_for_person) for pid, legs_for_person in buckets.items()})
+
+
+def convert_to_households(
+    df: pd.DataFrame,
+    *,
+    required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
+) -> frozendict:
+    """
+    Convert a trips DataFrame into a household-grouped structure for CarlaPlus.
+
+    Returns a frozendict keyed by household_id, where each value is a frozendict
+    of person_id -> tuple[Leg, ...].
+
+    Uses the Leg fields specified by the solver in `required_leg_fields`.
+    """
+    c = PlanColumns()
+
+    if not c.household_id or c.household_id not in df.columns:
+        raise ValueError(f"Household id column '{c.household_id}' is missing from DataFrame.")
+    if not c.person_id or c.person_id not in df.columns:
+        raise ValueError(f"Person id column '{c.person_id}' is missing from DataFrame.")
+
+    # Start with what the solver requires
+    leg_fields_to_use = set(required_leg_fields)
+
+    # Optional fields - populate if present in DataFrame
+    optional_leg_fields = {"to_act_identifier"}
+    for field in optional_leg_fields:
+        col = getattr(c, field, None)
+        if col and col in df.columns:
+            leg_fields_to_use.add(field)
+
+    legs = build_legs(
+        df,
+        required_leg_fields=leg_fields_to_use,
+        forbid_negative_distance=forbid_negative_distance,
+        forbid_missing_distance=forbid_missing_distance,
+    )
+
+    # Group by household_id then person_id
+    household_ids = df[c.household_id].astype(str).tolist()
+    person_ids = df[c.person_id].astype(str).tolist()
+
+    # household -> person -> list[Leg]
+    households: dict[str, dict[str, list[Leg]]] = defaultdict(lambda: defaultdict(list))
+
+    for hh_id, pid, leg in zip(household_ids, person_ids, legs):
+        households[hh_id][pid].append(leg)
+
+    # Freeze the structure
+    return frozendict({
+        hh_id: frozendict({pid: tuple(legs_list) for pid, legs_list in persons.items()})
+        for hh_id, persons in households.items()
+    })
+
 
 def summarize_plans_df(
     df: pd.DataFrame,

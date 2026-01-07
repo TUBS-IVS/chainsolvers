@@ -85,11 +85,11 @@ def _instantiate_solver(
     if not hasattr(solver, "wanted_format"):
         raise AttributeError(
             f"Solver '{type(solver).__name__}' must define string 'wanted_format' "
-            "(e.g. 'segmented_plans', 'segmented_plans_households', or 'df')."
+            "(e.g. 'segmented_plans', 'households', or 'df')."
         )
-    if not hasattr(solver, "required_df_columns") or not callable(getattr(solver, "required_df_columns")):
+    if not hasattr(solver, "required_leg_fields") or not callable(getattr(solver, "required_leg_fields")):
         raise AttributeError(
-            f"Solver '{type(solver).__name__}' must implement required_df_columns(self, PlanColumns) -> set[str]."
+            f"Solver '{type(solver).__name__}' must implement required_leg_fields(self) -> set[str]."
         )
     if not hasattr(solver, "solve") or not callable(getattr(solver, "solve")):
         raise AttributeError(f"Solver '{type(solver).__name__}' must implement a callable .solve(...).")
@@ -195,19 +195,24 @@ def solve(
     solver_obj = ctx.solver
     cols = PlanColumns()
 
-    # Ask the solver which DF columns it needs
-    required_cols = solver_obj.required_df_columns(cols)
+    # Ask the solver which leg fields it needs
+    required_leg_fields = solver_obj.required_leg_fields()
+    fmt = solver_obj.wanted_format
+
+    # Convert to column names for validation
+    required_cols = io.get_required_df_columns(required_leg_fields)
+    required_cols.add(cols.person_id)  # Always need person_id for grouping
+    if fmt == "households":
+        required_cols.add(cols.household_id)  # Households format needs household_id
 
     io.validate_input_plans_df(plans_df, required_cols=required_cols)
     io.summarize_plans_df(plans_df)
-
-    fmt = solver_obj.wanted_format
 
     # --- Build input structure based on wanted_format ----------------------------
     if fmt == "segmented_plans":
         plans_in = io.convert_to_segmented_plans(
             plans_df,
-            required_cols=required_cols,
+            required_leg_fields=required_leg_fields,
             forbid_negative_distance=forbid_negative_distance,
             forbid_missing_distance=forbid_missing_distance,
         )
@@ -217,7 +222,7 @@ def solve(
     elif fmt == "households":
         households_in = io.convert_to_households(
             plans_df,
-            required_cols=required_cols,
+            required_leg_fields=required_leg_fields,
             forbid_negative_distance=forbid_negative_distance,
             forbid_missing_distance=forbid_missing_distance,
         )

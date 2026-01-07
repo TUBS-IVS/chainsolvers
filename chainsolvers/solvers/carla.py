@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from frozendict import frozendict
 
 from chainsolvers.locations import Locations
-from chainsolvers.types import Segment, PlanColumns
+from chainsolvers.types import Segment
 
 
 @dataclass(slots=True)
@@ -57,17 +57,15 @@ class Carla:
     """
 
     wanted_format: str = "segmented_plans"
-    def required_df_columns(self, c: PlanColumns) -> set[str]:
+
+    def required_leg_fields(self) -> set[str]:
+        """Return the set of Leg field names this solver requires."""
         return {
-            c.person_id,
-            c.unique_leg_id,
-            c.to_act_type,
-            c.leg_distance_m,
-            # These can be None for most, but we do need start and end locations.
-            c.from_x,
-            c.from_y,
-            c.to_x,
-            c.to_y
+            "unique_leg_id",
+            "distance",
+            "from_location",
+            "to_location",
+            "to_act_type",
         }
 
     def __init__(

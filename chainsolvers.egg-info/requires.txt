@@ -1,0 +1,11 @@
+numpy
+pandas
+frozendict
+scipy
+pytest>=8.4.2
+
+[viz]
+folium
+networkx
+pyproj
+matplotlib
