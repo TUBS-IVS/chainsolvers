@@ -19,7 +19,7 @@ from .locations import Locations
 from .scoring_selection import Scorer, Selector
 from .solvers.carla import Carla
 from .solvers.carla_plus import CarlaPlus
-from. types import PlanColumns, SegmentedPlans, Households
+from .types import PlanColumns, SegmentedPlans, Households
 from . import io
 
 logger = logging.getLogger(__name__)
