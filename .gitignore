@@ -1,0 +1,41 @@
+# Virtual environments (per-OS, per-machine — never commit)
+.venv*/
+venv/
+env/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+
+# Generated output (figures, maps) — research output is under research/out/ (below)
+out/
+
+# ── RESEARCH ──
+# Research/eval CODE under research/ IS tracked. Only its data & generated output are not.
+# MiD HTS data must NEVER be committed (huge + licensed). Synthetic/generated output is disposable.
+research/data/
+research/out/
+
+# ── PAPER ──
+# The manuscript (LaTeX sources, PDFs, figures, build artifacts) is NOT tracked in this repo.
+paper/
+papers/
+
+# Local research / scratch notes (not part of the distributed library)
+scratch/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Private, NON-DISTRIBUTED comparison code: vendored GPL tools (e.g. eqasim) and the
+# glue that imports them. Kept local-only so the MIT library never ships/contains GPL code.
+_private/
+vendor/

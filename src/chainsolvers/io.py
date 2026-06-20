@@ -1,0 +1,1013 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable, Dict, Mapping, Tuple, Any, Optional, List, Set
+import difflib
+import numpy as np
+import pandas as pd
+from collections import defaultdict
+from frozendict import frozendict
+
+from .types import Leg, SegmentedPlans, LocationColumns, PlanColumns
+from .helpers import to_bool
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+# --- Plans --------------------------------------------------------------------
+
+def _suggest(similar_to: str, universe: Iterable[str], n: int = 3) -> list[str]:
+    return difflib.get_close_matches(similar_to, list(universe), n=n, cutoff=0.6)
+
+
+def _parse_connected_legs(val: Any) -> Optional[Tuple[str, ...]]:
+    """
+    Normalize a raw `connected_legs` cell into an ordered, de-duplicated tuple of
+    leg-id strings (or None if empty).
+
+    Accepts:
+      - None / NaN / empty           -> None
+      - an iterable (list/tuple/...)  -> its non-empty string elements
+      - a string                      -> split on commas and/or semicolons
+
+    De-duplicates while preserving first-seen order. Note: leg ids that themselves
+    contain ',' or ';' cannot be represented in the delimited-string form.
+    """
+    if val is None:
+        return None
+    # Scalar NaN (pd.isna raises on array-likes, so guard on np.isscalar first)
+    if np.isscalar(val) and pd.isna(val):
+        return None
+
+    if isinstance(val, (list, tuple, set, np.ndarray)):
+        raw_ids = [str(x).strip() for x in val]
+    else:
+        s = str(val).strip()
+        if not s:
+            return None
+        raw_ids = [piece.strip() for piece in s.replace(";", ",").split(",")]
+
+    # Drop empties and de-duplicate, preserving order.
+    leg_ids = list(dict.fromkeys(lid for lid in raw_ids if lid))
+    return tuple(leg_ids) if leg_ids else None
+
+
+def validate_input_plans_df(df: pd.DataFrame, required_cols: Iterable[str]) -> None:
+    """
+    Validate that all required_cols are present in df.
+    Raises ValueError with helpful suggestions if something is missing.
+    """
+    present = set(df.columns)
+    required = [c for c in required_cols if c]  # drop None / ""
+    missing = [c for c in required if c not in present]
+
+    if not missing:
+        return
+
+    msgs: list[str] = ["Missing required columns:"]
+    for name in missing:
+        sugg = _suggest(name, present)
+        hint = f"  - {name}" + (f" (you did give: {', '.join(sugg)})" if sugg else "")
+        msgs.append(hint)
+
+    raise ValueError("\n".join(msgs))
+
+
+def get_required_df_columns(required_leg_fields: Iterable[str]) -> Set[str]:
+    """
+    Given a set of required Leg field names, return the flat set of DF column names
+    needed to populate them, using PlanColumns.
+
+    Special cases:
+    - from_location -> (from_x, from_y)
+    - to_location   -> (to_x, to_y)
+    Everything else is taken 1:1 from PlanColumns (if non-None).
+    """
+    c = PlanColumns()
+    out: set[str] = set()
+
+    for field in required_leg_fields:
+        if field == "from_location":
+            out.add(c.from_x)
+            out.add(c.from_y)
+        elif field == "to_location":
+            out.add(c.to_x)
+            out.add(c.to_y)
+        else:
+            colname = getattr(c, field, None)
+            if isinstance(colname, str):
+                out.add(colname)
+    return out
+
+
+def build_legs(
+    df: pd.DataFrame,
+    *,
+    required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
+) -> list[Leg]:
+    """
+    Core ingestion: construct Leg objects from a DataFrame, using PlanColumns.
+
+    - Only fields listed in `required_leg_fields` are populated from DF.
+    - All other Leg fields are set to None.
+    - Column presence is assumed to be validated upstream.
+    - Distance constraints are enforced here via forbid_* flags.
+    """
+    c = PlanColumns()
+    col_index = {name: i for i, name in enumerate(df.columns)}
+
+    def gi(row: tuple, colname: str | None):
+        if not colname:
+            return None
+        idx = col_index.get(colname)
+        if idx is None:
+            return None
+        try:
+            return row[idx]
+        except IndexError:
+            return None
+
+    def safe_xy(x, y):
+        if x is None or y is None:
+            return None
+        try:
+            xv, yv = float(x), float(y)
+        except Exception:
+            return None
+        if not (np.isfinite(xv) and np.isfinite(yv)):
+            return None
+        return np.array([xv, yv], dtype=np.float64)
+
+    legs: list[Leg] = []
+
+    for row in df.itertuples(index=False, name=None):
+
+        # --- unique_leg_id ----------------------------------------------------
+        unique_leg_id = None
+        if "unique_leg_id" in required_leg_fields:
+            val = gi(row, c.unique_leg_id)
+            unique_leg_id = str(val) if val is not None else None
+
+        # --- distance ---------------------------------------------------------
+        distance = None
+        if "distance" in required_leg_fields:
+            raw = gi(row, c.leg_distance_m)
+
+            # Missing?
+            if raw is None or (isinstance(raw, float) and np.isnan(raw)):
+                if forbid_missing_distance:
+                    raise ValueError(f"Missing distance for leg '{unique_leg_id}'.")
+                distance = None
+            else:
+                try:
+                    distance = float(raw)
+                except Exception:
+                    if forbid_missing_distance:
+                        raise ValueError(
+                            f"Non-numeric distance {raw!r} for leg '{unique_leg_id}'."
+                        )
+                    distance = None
+
+            # Negative?
+            if (
+                forbid_negative_distance
+                and distance is not None
+                and distance < 0
+            ):
+                raise ValueError(
+                    f"Negative distance {distance} for leg '{unique_leg_id}'."
+                )
+
+        # --- from/to locations ------------------------------------------------
+        from_location = None
+        if "from_location" in required_leg_fields:
+            fx = gi(row, c.from_x)
+            fy = gi(row, c.from_y)
+            from_location = safe_xy(fx, fy)
+
+        to_location = None
+        if "to_location" in required_leg_fields:
+            tx = gi(row, c.to_x)
+            ty = gi(row, c.to_y)
+            to_location = safe_xy(tx, ty)
+
+        # --- activity type / identifier / main flag ---------------------------
+        to_act_type = None
+        if "to_act_type" in required_leg_fields:
+            val = gi(row, c.to_act_type)
+            to_act_type = str(val) if val is not None else None
+
+        to_act_identifier = None
+        if "to_act_identifier" in required_leg_fields:
+            val = gi(row, c.to_act_identifier)
+            to_act_identifier = str(val) if val is not None else None
+
+        to_act_is_main_act = None
+        if "to_act_is_main_act" in required_leg_fields:
+            val = gi(row, c.to_act_is_main)
+            # leave interpretation (0/1 vs bool) to downstream if needed
+            to_act_is_main_act = bool(val) if val is not None else None
+
+        # --- mode -------------------------------------------------------------
+        mode = None
+        if "mode" in required_leg_fields:
+            val = gi(row, c.mode)
+            mode = str(val) if val is not None else None
+
+        # --- times ------------------------------------------------------------
+        dep_time_s = None
+        if "dep_time_s" in required_leg_fields:
+            val = gi(row, c.dep_time_s)
+            try:
+                dep_time_s = int(val) if val is not None else None
+            except Exception:
+                dep_time_s = None
+
+        arr_time_s = None
+        if "arr_time_s" in required_leg_fields:
+            val = gi(row, c.arr_time_s)
+            try:
+                arr_time_s = int(val) if val is not None else None
+            except Exception:
+                arr_time_s = None
+
+        # --- connected legs ---------------------------------------------------
+        connected_legs = None
+        if "connected_legs" in required_leg_fields:
+            connected_legs = _parse_connected_legs(gi(row, c.connected_legs))
+
+        # Connection fields & extras are always None at ingest (except connected_legs)
+        leg = Leg(
+            unique_leg_id=unique_leg_id,          # type: ignore[arg-type]
+            distance=distance,                    # type: ignore[arg-type]
+            from_location=from_location,
+            to_location=to_location,
+            to_act_type=to_act_type,              # type: ignore[arg-type]
+            to_act_identifier=to_act_identifier,
+            to_act_is_main_act=to_act_is_main_act,
+            mode=mode,
+            dep_time_s=dep_time_s,
+            arr_time_s=arr_time_s,
+            connected_legs=connected_legs,
+            conn_leader_id=None,
+            conn_to_act=None,
+            conn_to_mode=None,
+            extras=None,
+        )
+
+        legs.append(leg)
+
+    return legs
+
+
+
+def convert_to_segmented_plans(
+    df: pd.DataFrame,
+    *,
+    required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
+) -> SegmentedPlans:
+    """
+    Convert a trips DataFrame into SegmentedPlans (person -> tuple[Leg, ...]),
+    using the Leg fields specified by the solver in `required_leg_fields`.
+
+    Optional fields like to_act_identifier are populated if present in the DataFrame,
+    even if not explicitly required by the solver.
+    """
+    c = PlanColumns()
+
+    if not c.person_id or c.person_id not in df.columns:
+        raise ValueError(f"Person id column '{c.person_id}' is missing from DataFrame.")
+
+    # Start with what the solver requires
+    leg_fields_to_use = set(required_leg_fields)
+
+    # Optional fields - populate if present in DataFrame, but don't require them
+    optional_leg_fields = {"to_act_identifier", "connected_legs"}
+    for field in optional_leg_fields:
+        col = getattr(c, field, None)
+        if col and col in df.columns:
+            leg_fields_to_use.add(field)
+
+    legs = build_legs(
+        df,
+        required_leg_fields=leg_fields_to_use,
+        forbid_negative_distance=forbid_negative_distance,
+        forbid_missing_distance=forbid_missing_distance,
+    )
+
+    # Group by person_id in row order
+    person_ids = df[c.person_id].astype(str).tolist()
+    buckets: dict[str, list[Leg]] = defaultdict(list)
+
+    for pid, leg in zip(person_ids, legs):
+        buckets[pid].append(leg)
+
+    # For now, like before: person_id -> tuple[Leg, ...]
+    return frozendict({pid: tuple(legs_for_person) for pid, legs_for_person in buckets.items()})
+
+
+def convert_to_households(
+    df: pd.DataFrame,
+    *,
+    required_leg_fields: Set[str],
+    forbid_negative_distance: bool = True,
+    forbid_missing_distance: bool = True,
+) -> frozendict:
+    """
+    Convert a trips DataFrame into a household-grouped structure for CarlaPlus.
+
+    Returns a frozendict keyed by household_id, where each value is a frozendict
+    of person_id -> tuple[Leg, ...].
+
+    Uses the Leg fields specified by the solver in `required_leg_fields`.
+    """
+    c = PlanColumns()
+
+    if not c.household_id or c.household_id not in df.columns:
+        raise ValueError(f"Household id column '{c.household_id}' is missing from DataFrame.")
+    if not c.person_id or c.person_id not in df.columns:
+        raise ValueError(f"Person id column '{c.person_id}' is missing from DataFrame.")
+
+    # Start with what the solver requires
+    leg_fields_to_use = set(required_leg_fields)
+
+    # Optional fields - populate if present in DataFrame
+    optional_leg_fields = {"to_act_identifier", "connected_legs"}
+    for field in optional_leg_fields:
+        col = getattr(c, field, None)
+        if col and col in df.columns:
+            leg_fields_to_use.add(field)
+
+    legs = build_legs(
+        df,
+        required_leg_fields=leg_fields_to_use,
+        forbid_negative_distance=forbid_negative_distance,
+        forbid_missing_distance=forbid_missing_distance,
+    )
+
+    # Group by household_id then person_id
+    household_ids = df[c.household_id].astype(str).tolist()
+    person_ids = df[c.person_id].astype(str).tolist()
+
+    # household -> person -> list[Leg]
+    households: dict[str, dict[str, list[Leg]]] = defaultdict(lambda: defaultdict(list))
+
+    for hh_id, pid, leg in zip(household_ids, person_ids, legs):
+        households[hh_id][pid].append(leg)
+
+    # Freeze the structure
+    return frozendict({
+        hh_id: frozendict({pid: tuple(legs_list) for pid, legs_list in persons.items()})
+        for hh_id, persons in households.items()
+    })
+
+
+def find_connected_legs_in_households(
+    households: frozendict,
+    distance_tolerance_m: float = 100.0,
+    dep_tolerance_s: int = 300,
+    arr_tolerance_s: int = 300,
+    compatible_modes: Dict[str, Set[str]] | None = None,
+    compatible_activities: Dict[str, Set[str]] | None = None,
+) -> frozendict:
+    """
+    Find connections between legs within each household.
+
+    For each household, compare all pairs of legs from different people.
+    Mark legs as connected if they match on distance, time, mode, and activity.
+
+    Returns updated households structure with connected_legs populated.
+    """
+    from .helpers import (
+        check_distance_match,
+        check_time_match,
+        check_mode_match,
+        check_activity_match,
+    )
+
+    # Default to empty dicts if None
+    compatible_modes = compatible_modes or {}
+    compatible_activities = compatible_activities or {}
+
+    updated_households = {}
+
+    for hh_id, persons in households.items():
+        # Skip single-person households
+        if len(persons) == 1:
+            updated_households[hh_id] = persons
+            continue
+
+        # Build list of all legs with their person_id and index
+        all_legs: List[Tuple[str, int, Leg]] = []  # (person_id, leg_idx, leg)
+        for person_id, legs_tuple in persons.items():
+            for leg_idx, leg in enumerate(legs_tuple):
+                all_legs.append((person_id, leg_idx, leg))
+
+        # Track connections for each leg (by unique_leg_id)
+        connections: Dict[str, Set[str]] = defaultdict(set)
+
+        # Compare all pairs of legs from different people
+        for i, (pid_a, idx_a, leg_a) in enumerate(all_legs):
+            for j, (pid_b, idx_b, leg_b) in enumerate(all_legs):
+                # Skip same person or already compared pairs
+                if pid_a == pid_b or j <= i:
+                    continue
+
+                # Skip if either leg doesn't have unique_leg_id
+                if not leg_a.unique_leg_id or not leg_b.unique_leg_id:
+                    continue
+
+                # Check all 4 criteria
+                dist_match = check_distance_match(leg_a, leg_b, distance_tolerance_m)
+                time_match = check_time_match(leg_a, leg_b, dep_tolerance_s, arr_tolerance_s)
+                mode_match = check_mode_match(leg_a, leg_b, compatible_modes)
+                activity_match = check_activity_match(leg_a, leg_b, compatible_activities)
+
+                # If all match, add bidirectional connection
+                if dist_match and time_match and mode_match and activity_match:
+                    connections[leg_a.unique_leg_id].add(leg_b.unique_leg_id)
+                    connections[leg_b.unique_leg_id].add(leg_a.unique_leg_id)
+
+        # Update legs with connections
+        updated_persons = {}
+        for person_id, legs_tuple in persons.items():
+            updated_legs = []
+            for leg in legs_tuple:
+                if leg.unique_leg_id and leg.unique_leg_id in connections:
+                    # Update with sorted tuple of connected leg IDs
+                    connected_ids = tuple(sorted(connections[leg.unique_leg_id]))
+                    updated_leg = leg._replace(connected_legs=connected_ids)
+                    updated_legs.append(updated_leg)
+                else:
+                    # No connections found
+                    updated_legs.append(leg)
+
+            updated_persons[person_id] = tuple(updated_legs)
+
+        updated_households[hh_id] = frozendict(updated_persons)
+
+    return frozendict(updated_households)
+
+
+def summarize_plans_df(
+    df: pd.DataFrame,
+    *,
+    cols: PlanColumns = PlanColumns()
+) -> None:
+    """
+    Log a best-effort summary of the plans DataFrame.
+    Never raises. Only logs.
+    """
+    try:
+        n_rows = len(df)
+    except Exception:
+        logger.info("Input summary: could not determine number of rows.")
+        return
+
+    # --- Optional: count persons if column available -------------------------
+    n_persons = None
+    if cols.person_id and cols.person_id in df.columns:
+        try:
+            n_persons = df[cols.person_id].nunique(dropna=True)
+        except Exception:
+            n_persons = None
+
+    # --- Optional: count households ------------------------------------------
+    n_households = None
+    if cols.household_id and cols.household_id in df.columns:
+        try:
+            n_households = df[cols.household_id].nunique(dropna=True)
+        except Exception:
+            n_households = None
+
+    # --- Compose informative message -----------------------------------------
+    parts = [f"{n_rows} legs"]
+
+    if n_persons is not None:
+        parts.append(f"{n_persons} persons")
+    if n_households is not None:
+        parts.append(f"{n_households} households")
+
+    msg = "Input summary: " + ", ".join(parts) + "."
+    logger.info(msg)
+
+
+# --- Locations --------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DictLocationSchema:
+    """Field names inside each per-identifier entry."""
+    coordinates: str = "coordinates"  # [x, y] or (x, y)
+    potential: str = "potential"       # float
+    name: str = "name"                # optional; ignored by payload
+
+
+def build_locations_payload_from_dict(
+    data: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    *,
+    missing_potential_default: float = 0.0,
+    drop_rows_with_invalid_xy: bool = True,
+) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """
+    Convert a nested dict of facilities into the three arrays needed by `Locations`.
+
+    Example
+    -------
+    data = {
+      "home": {
+          "h1": {"coordinates": [10, 20], "potential": 3.0},
+          "h2": {"coordinates": [15, 25]},  # potential missing → 0.0
+      }
+    }
+    ids, coords, pots = build_locations_payload_from_dict(data)
+    ids["home"]
+
+    Returns identifiers, coordinates, potentials : dict[str, np.ndarray]
+        ids -> (n,), coords -> (n,2), pots -> (n,)
+    """
+    schema = DictLocationSchema
+    id_out: Dict[str, list] = {}
+    coord_out: Dict[str, list] = {}
+    pot_out: Dict[str, list] = {}
+
+    def ensure_act(act: str) -> None:
+        if act not in id_out:
+            id_out[act], coord_out[act], pot_out[act] = [], [], []
+
+    for act_type, entries in data.items():
+        if not isinstance(entries, Mapping):
+            logger.warning(f"Expected a mapping for act_type '{act_type}', got {type(entries).__name__}. Skipping.")
+            continue
+        ensure_act(act_type)
+
+        for identifier, entry in entries.items():
+            coords = entry.get(schema.coordinates, None)
+            pot = entry.get(schema.potential, missing_potential_default)
+
+            # Coordinates validation
+            try:
+                if coords is None or len(coords) != 2:
+                    raise ValueError("coords must be length-2")
+                x = float(coords[0]); y = float(coords[1])
+                if not (np.isfinite(x) and np.isfinite(y)):
+                    raise ValueError("coords not finite")
+            except Exception:
+                if drop_rows_with_invalid_xy:
+                    logger.warning(f"Skipping '{identifier}' in '{act_type}' due to invalid coordinates: {coords}")
+                    continue
+                x, y = np.nan, np.nan
+
+            # Potential to float
+            try:
+                pot_f = float(pot)
+            except Exception:
+                pot_f = float(missing_potential_default)
+
+            id_out[act_type].append(identifier)
+            coord_out[act_type].append((x, y))
+            pot_out[act_type].append(pot_f)
+
+    # Convert to numpy
+    identifiers: Dict[str, np.ndarray] = {}
+    coordinates: Dict[str, np.ndarray] = {}
+    potentials: Dict[str, np.ndarray] = {}
+
+    for act, ids in id_out.items():
+        identifiers[act] = np.asarray(ids, dtype=object)
+        coordinates[act] = np.asarray(coord_out[act], dtype=float).reshape(-1, 2)
+        potentials[act] = np.asarray(pot_out[act], dtype=float)
+
+        n = coordinates[act].shape[0]
+        if not (len(identifiers[act]) == n == len(potentials[act])):
+            raise RuntimeError(f"Inconsistent lengths for activity '{act}'.")
+
+    return identifiers, coordinates, potentials
+
+
+
+
+def build_locations_payload_from_df(
+    df: pd.DataFrame,
+    *,
+    cols: LocationColumns = LocationColumns(),
+    activity_sep: str = ";",
+    missing_potential_default: float = 0.0,
+    drop_rows_with_invalid_xy: bool = True,
+) -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]:
+    """
+    Transform a (Geo)DataFrame of facilities into the three dicts needed by `Locations`.
+    Returns identifiers, coordinates, potentials : dict[str, np.ndarray]
+    ids -> (n,), coords -> (n,2), pots -> (n,)
+    """
+    df = df.copy()
+
+    # --- Resolve X/Y sources --------------------------------------------------
+    have_xy_cols = (cols.x and cols.x in df.columns) and (cols.y and cols.y in df.columns)
+    if not have_xy_cols:
+        cols_is_multi = isinstance(df.columns, pd.MultiIndex)
+        has_geom = ("geometry" in df.columns.get_level_values(0)) if cols_is_multi else ("geometry" in df.columns)
+        if has_geom:
+            try:
+                df["_x"] = df["geometry"].x
+                df["_y"] = df["geometry"].y
+                x_name, y_name = "_x", "_y"
+            except Exception as e:
+                raise ValueError(
+                    "Could not derive coordinates from 'geometry'. "
+                    "Provide explicit x/y columns via LocationColumns."
+                ) from e
+        else:
+            raise ValueError(
+                "No coordinate columns found and no 'geometry' column to fall back to. "
+                "Provide x_col and y_col in LocationColumns."
+            )
+    else:
+        x_name, y_name = cols.x, cols.y  # type: ignore[assignment]
+
+    # --- Basic validation ------------------------------------------------------
+    missing_req = [c for c in cols.required() if c not in df.columns]
+    if not have_xy_cols:
+        missing_req = [c for c in missing_req if c not in (cols.x, cols.y)]
+    if missing_req:
+        raise ValueError(f"Missing required columns: {missing_req}")
+
+    # Normalize to string for activity/potential parsing
+    act_series = df[cols.activities].fillna("").astype(str)
+    if cols.potentials and cols.potentials in df.columns:
+        pot_series = df[cols.potentials].fillna("").astype(str)
+    else:
+        pot_series = pd.Series([""] * len(df), index=df.index)
+
+    # Coordinates
+    x = pd.to_numeric(df[x_name], errors="coerce")
+    y = pd.to_numeric(df[y_name], errors="coerce")
+    finite_mask = np.isfinite(x.values) & np.isfinite(y.values)
+
+    if drop_rows_with_invalid_xy:
+        bad = (~finite_mask)
+        if bad.any():
+            logger.warning(f"Dropping {int(bad.sum())} rows with invalid coordinates.")
+        keep_idx = df.index[finite_mask]
+        df = df.loc[keep_idx].copy()
+        act_series = act_series.loc[keep_idx]
+        pot_series = pot_series.loc[keep_idx]
+        x = x.loc[keep_idx]; y = y.loc[keep_idx]
+
+    ids = df[cols.id]
+
+    # --- Accumulate per activity type ----------------------------------------
+    id_map: Dict[str, list] = {}
+    coord_map: Dict[str, list] = {}
+    pot_map: Dict[str, list] = {}
+
+    def ensure_keys(k: str) -> None:
+        if k not in id_map:
+            id_map[k] = []
+            coord_map[k] = []
+            pot_map[k] = []
+
+    for i in df.index:
+        acts = [a.strip() for a in act_series.at[i].split(activity_sep) if a.strip()]
+        if not acts:
+            continue
+
+        pots_str = [p.strip() for p in pot_series.at[i].split(activity_sep)] if pot_series.at[i].strip() else []
+        pots: list[float] = []
+        for j, _ in enumerate(acts):
+            try:
+                pots.append(float(pots_str[j]))
+            except Exception:
+                pots.append(missing_potential_default)
+
+        xi = float(x.at[i]) if pd.notna(x.at[i]) else np.nan
+        yi = float(y.at[i]) if pd.notna(y.at[i]) else np.nan
+        coord = (xi, yi)
+
+        for act, pot in zip(acts, pots):
+            ensure_keys(act)
+            id_map[act].append(ids.at[i])
+            coord_map[act].append(coord)
+            pot_map[act].append(pot)
+
+    # --- Convert to numpy arrays ---------------------------------------------
+    identifiers: Dict[str, np.ndarray] = {}
+    coordinates: Dict[str, np.ndarray] = {}
+    potentials: Dict[str, np.ndarray] = {}
+
+    for act in coord_map:
+        identifiers[act] = np.asarray(id_map[act], dtype=object)
+        coordinates[act] = np.asarray(coord_map[act], dtype=float).reshape(-1, 2)
+        potentials[act] = np.asarray(pot_map[act], dtype=float)
+
+        n = coordinates[act].shape[0]
+        if not (len(identifiers[act]) == n == len(potentials[act])):
+            raise RuntimeError(f"Inconsistent lengths for activity '{act}'.")
+
+    return identifiers, coordinates, potentials
+
+
+def summarize_locations_payload(
+    payload: Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray]]
+) -> pd.DataFrame:
+    """Return a small summary table: per act_type counts and coordinate bounds."""
+    ids, coords, pots = payload
+    rows = []
+    for act in sorted(coords.keys()):
+        c = coords[act]
+        p = pots.get(act, np.array([], dtype=float))
+        if c.size == 0:
+            rows.append({"act_type": act, "n": 0, "min_x": np.nan, "max_x": np.nan,
+                         "min_y": np.nan, "max_y": np.nan, "sum_potential": float(np.nansum(p))})
+            continue
+        rows.append({
+            "act_type": act,
+            "n": int(c.shape[0]),
+            "min_x": float(np.nanmin(c[:, 0])),
+            "max_x": float(np.nanmax(c[:, 0])),
+            "min_y": float(np.nanmin(c[:, 1])),
+            "max_y": float(np.nanmax(c[:, 1])),
+            "sum_potential": float(np.nansum(p)),
+        })
+    return pd.DataFrame(rows)
+
+# ---- Exports ----
+
+
+def build_name_lookup_from_dict(data: Mapping[str, Mapping[str, Mapping[str, Any]]]) -> Dict[str, str]:
+    """Return {identifier -> name} from nested dict input (last non-empty wins)."""
+    schema = DictLocationSchema()
+    out: Dict[str, str] = {}
+    for _act, entries in data.items():
+        for ident, entry in entries.items():
+            name = entry.get(schema.name)
+            if isinstance(name, str) and name.strip():
+                out[str(ident)] = name.strip()
+    return out
+
+
+def build_name_lookup_from_df(df: pd.DataFrame) -> Dict[str, str]:
+    """Return {identifier -> name} from (Geo)DataFrame if a name column exists."""
+    cols = LocationColumns
+    if not (cols.name and cols.name in df.columns):
+        return {}
+    sub = df[[cols.id, cols.name]].dropna(subset=[cols.id]).astype({cols.id: str, cols.name: str})
+    return dict(zip(sub[cols.id], sub[cols.name]))  # last occurrence wins
+
+def segmented_plans_to_dataframe(
+    plans: SegmentedPlans,
+    *,
+    include_extras: bool = False,
+) -> pd.DataFrame:
+    """
+    Flatten SegmentedPlans to a DataFrame using `PlanColumns` naming.
+    If `include_extras=True`, all keys from `extras` are added as columns.
+    """
+    rows: list[dict[str, Any]] = []
+    cols = PlanColumns()
+
+    for person_id, segments in plans.items():
+        for segment in segments:
+            for leg in segment:
+                g = lambda k, d=None: getattr(leg, k, d)
+
+                fx = fy = tx = ty = np.nan
+                fr = g("from_location")
+                to = g("to_location")
+                if isinstance(fr, np.ndarray) and fr.shape == (2,):
+                    fx, fy = float(fr[0]), float(fr[1])
+                if isinstance(to, np.ndarray) and to.shape == (2,):
+                    tx, ty = float(to[0]), float(to[1])
+
+                row = {
+                    cols.person_id: str(person_id),
+                    cols.unique_leg_id: str(g("unique_leg_id")),
+                    cols.to_act_type: g("to_act_type"),
+                    cols.leg_distance_m: float(g("distance", 0.0) or 0.0),
+                    cols.from_x: fx,
+                    cols.from_y: fy,
+                    cols.to_x: tx,
+                    cols.to_y: ty,
+                }
+                if cols.mode:
+                    row[cols.mode] = g("mode")
+                if cols.to_act_is_main:
+                    row[cols.to_act_is_main] = g("to_act_is_main_act")
+                if cols.to_act_identifier:
+                    row[cols.to_act_identifier] = g("to_act_identifier")
+                if cols.connected_legs:
+                    connected = g("connected_legs")
+                    if connected:
+                        # Convert tuple of leg IDs to comma-separated string
+                        row[cols.connected_legs] = ",".join(connected)
+                    else:
+                        row[cols.connected_legs] = None
+
+                if include_extras:
+                    extras = g("extras") or {}
+                    if isinstance(extras, dict):
+                        row.update(extras)
+
+                rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def enrich_plans_df_with_names(
+    plans_df: pd.DataFrame,
+    *,
+    name_lookup: Mapping[str, str],
+    overwrite: bool = True
+) -> pd.DataFrame:
+    """
+    Add a name column by mapping `plan_cols.to_act_identifier` via `name_lookup`.
+    No-op if the identifier column is absent/None.
+    """
+    plan_cols = PlanColumns()
+    id_col = plan_cols.to_act_identifier
+    if not id_col or id_col not in plans_df.columns:
+        return plans_df.copy()
+
+    df = plans_df.copy()
+    if overwrite or plan_cols.to_act_name not in df.columns:
+        # map only non-null ids; coerce to str for stable dict lookup
+        mapped = df[id_col].where(df[id_col].notna()).astype(str).map(name_lookup)
+        df[plan_cols.to_act_name] = mapped
+    return df
+
+def enrich_plans_df_with_potentials(df, *, locations) -> "pd.DataFrame":
+    """
+    Add to_act_potential column by looking up potentials from Locations using
+    (to_act_type, to_act_identifier). If required columns are missing or df is
+    empty, return df unchanged.
+
+    :param df: plans dataframe (expects 'to_act_type' and 'to_act_identifier')
+    :param locations: Locations instance (provides identifiers and potentials)
+    :return: new dataframe with 'to_act_potential' (float) added when possible
+    """
+    # Defensive checks
+    if df is None or len(df) == 0:
+        return df
+    to_type_col = PlanColumns.to_act_type
+    to_id_col = PlanColumns.to_act_identifier
+    if to_type_col not in df.columns or to_id_col not in df.columns:
+        return df
+
+    # Prepare id->potential mapping per activity type
+    type_maps = {}
+    for act_type, ids in locations.identifiers.items():
+        pots = locations.potentials.get(act_type)
+        if pots is None:
+            continue
+        # Build a plain dict for mapping
+        type_maps[act_type] = {id_: float(pot) for id_, pot in zip(ids, pots)}
+
+    # Populate new column
+    out = df.copy()
+    col_name = "to_act_potential"
+    out[col_name] = np.nan
+
+    # Assign per-type to avoid custom apply over rows
+    for act_type, id_to_pot in type_maps.items():
+        mask = out[to_type_col] == act_type
+        if mask.any():
+            out.loc[mask, col_name] = out.loc[mask, to_id_col].map(id_to_pot)
+
+    return out
+
+def _is_xy(v: Any) -> bool:
+    """True iff v is a finite ndarray of shape (2,)."""
+    return isinstance(v, np.ndarray) and v.shape == (2,) and np.isfinite(v).all()
+
+def segment_plans(
+    plans: SegmentedPlans,
+    *,
+    drop_open_tail: bool = False,
+    require_known_start: bool = False,
+) -> SegmentedPlans:
+    """
+    Segment each person's legs into contiguous segments, closing a segment whenever
+    the current leg has a known `to_location` (shape (2,)).
+
+    Parameters
+    ----------
+    plans : SegmentedPlans
+        frozendict[str, tuple[Leg, ...]]
+    drop_open_tail : bool, default False
+        If True, discard a trailing segment that doesn't end with a known `to_location`.
+        If False, keep it as an "open" segment.
+    require_known_start : bool, default False
+        If True, only start a new segment once a leg has a known `from_location`.
+        Legs before that are accumulated into the first segment but won't trigger a new
+        segment boundary until a `to_location` appears.
+
+    Returns
+    -------
+    SegmentedPlans
+        frozendict[str, tuple[tuple[Leg, ...], ...]]
+    """
+    out: Dict[str, Tuple[Tuple[Any, ...], ...]] = {}
+
+    for person_id, legs in plans.items():
+        segments: List[Tuple[Any, ...]] = []
+        current: List[Any] = []
+        started = not require_known_start  # if not required, we can start immediately
+
+        for leg in legs:
+            if not started and _is_xy(getattr(leg, "from_location", None)):
+                started = True
+
+            if started:
+                current.append(leg)
+
+                # Close the segment if this leg provides a concrete end
+                if _is_xy(getattr(leg, "to_location", None)):
+                    segments.append(tuple(current))
+                    current = []
+            else:
+                # We haven't "started" yet; still accumulate until we get a valid start or end.
+                current.append(leg)
+                if _is_xy(getattr(leg, "to_location", None)):
+                    # We got an end even without a known start; still treat it as a segment.
+                    segments.append(tuple(current))
+                    current = []
+                    # remain not-started until a leg has a known from_location
+
+        # Handle tail
+        if current:
+            if not drop_open_tail:
+                segments.append(tuple(current))
+            # else: discard dangling open segment
+
+        out[str(person_id)] = tuple(segments)
+
+    return frozendict(out)
+
+def validate_output_plans_df(
+    df: pd.DataFrame,
+) -> bool:
+    """
+    Validate a results DataFrame after placement. Logs findings; returns True/False.
+    - Ensures required columns exist.
+    - Ensures assigned coordinates (to_x/to_y) are present & finite.
+    - Ensures distances are present & nonnegative (if check_distance_nonnegative=True).
+    """
+    ok = True
+    cols = PlanColumns()
+    # --- Column presence ------------------------------------------------------
+    required = {
+        cols.person_id, cols.unique_leg_id, cols.to_act_type, cols.leg_distance_m,
+        cols.to_x, cols.to_y
+    }
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        logger.error("Validation failed: missing required columns: %s", missing)
+        ok = False
+    else:
+        logger.info("All required columns present: %s", sorted(required))
+
+    if not ok:
+        return False  # can't continue checks reliably
+
+    # --- Coerce to numeric views for checks (no mutation) ---------------------
+    to_x = pd.to_numeric(df[cols.to_x], errors="coerce")
+    to_y = pd.to_numeric(df[cols.to_y], errors="coerce")
+    dist = pd.to_numeric(df[cols.leg_distance_m], errors="coerce")
+
+    # --- XY assigned & finite -------------------------------------------------
+    bad_xy_mask = ~(np.isfinite(to_x.values) & np.isfinite(to_y.values))
+    n_bad_xy = int(bad_xy_mask.sum())
+    if n_bad_xy > 0:
+        logger.error("Validation failed: %d rows have missing/non-finite assigned coordinates (%s/%s).",
+                     n_bad_xy, cols.to_x, cols.to_y)
+        ok = False
+    else:
+        logger.info("All assigned coordinates are present and finite.")
+
+    # --- Distance presence / sign --------------------------------------------
+    n_dist_na = int((~np.isfinite(dist.values)).sum())
+    if n_dist_na > 0:
+        logger.error("Validation failed: %d rows have missing/non-finite %s.", n_dist_na, cols.leg_distance_m)
+        ok = False
+    n_dist_neg = int((dist.values < 0).sum())
+    if n_dist_neg > 0:
+        logger.error("Validation failed: %d rows have negative %s.", n_dist_neg, cols.leg_distance_m)
+        ok = False
+    if n_dist_na == 0 and n_dist_neg == 0:
+        logger.info("All distances present and non-negative.")
+
+    # --- Helpful summary ------------------------------------------------------
+    try:
+        n_persons = df[cols.person_id].nunique(dropna=True)
+        n_rows = len(df)
+        logger.info("Results summary: %d legs across %d persons.", n_rows, n_persons)
+    except Exception:
+        logger.error("Could not compute summary stats.")
+        pass
+
+    return ok

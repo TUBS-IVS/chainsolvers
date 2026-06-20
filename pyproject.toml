@@ -27,3 +27,17 @@ viz = [
     "pyproj",
     "matplotlib",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# src-layout: only the library under src/chainsolvers is packaged/shipped.
+# Research/eval code lives in research/ and is NOT part of the distributed wheel.
+[tool.hatch.build.targets.wheel]
+packages = ["src/chainsolvers"]
+
+[tool.pytest.ini_options]
+# Library tests by default; research tests need the research package installed
+# (pip install -e ./research) and live under tests/research.
+testpaths = ["tests/unit"]

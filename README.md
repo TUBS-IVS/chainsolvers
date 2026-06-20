@@ -86,11 +86,12 @@ ctx = cs.setup(
     #     "selection_strategy_two_leg_case": "top_n",
     #     "max_iterations_complex_case": 100,
     # },
-    # rng_seed=42,              # or pass a numpy Generator
-    # scorer=CustomScorer(),    # uses default scorer if not specified
-    # selector=CustomSelector() # uses default selector if not specified
-    # progress=tqdm,            # for progress bars, use your own if you want, no progress bars shown if not specified
-    # visualizer=None,          # "out/maps" will create a default Visualizer(savedir="out/maps") or pass CustomVisualizer()
+    # rng_seed=42,                       # or pass a numpy Generator
+    # scorer=cs.Scorer(mode="geometric"),# scoring mode, see "Scoring" below (default: geometric)
+    # selector=cs.Selector(),            # uses default selector if not specified
+    # progress=tqdm,                     # for progress bars, use your own if you want, no progress bars shown if not specified
+    # visualizer=None,                   # "out/maps" creates a default Visualizer(savedir="out/maps"), or pass CustomVisualizer()
+    # visualizer_crs=25832,              # source CRS of your coordinates when visualizer is a path (default: EPSG:25832)
 )
 
 # 3) Input plans. Minimum required columns:
@@ -115,6 +116,42 @@ print(result_plans)
 A tuple of three elements (in order):
 - **`result_df`**: `pandas.DataFrame` (always returned). Placed plans in same df format as input plans.
 - **`result_plans`**: `SegmentedPlans` (`frozendict[str, tuple[Segment, ...]]`) or `None`. Results in the internal `SegmentedPlans` (may be useful, else just ignore).
-- **`valid`**: `bool`. Whether the output validation succeeded. 
+- **`valid`**: `bool`. Whether the output validation succeeded.
+
+## Scoring
+
+Candidate locations are ranked by a **`Scorer`** (higher score = better). It combines two signals:
+
+- **distance deviation** — how far a candidate is from the geometrically ideal point given the leg distances, and
+- **potential** — the location's attractiveness/capacity (the `potential(s)` you provide with each location).
+
+Pick which signal(s) drive placement via the `mode` argument, then pass the scorer to `setup`:
+
+```python
+import chainsolvers as cs
+
+# Geometry only (default): potentials are ignored.
+cs.setup(..., scorer=cs.Scorer(mode="geometric"))
+
+# Potential only: geometry is ignored.
+cs.setup(..., scorer=cs.Scorer(mode="potential"))
+
+# Weighted blend of both.
+cs.setup(..., scorer=cs.Scorer(mode="combined", pot_weight=1.0, dist_dev_weight=1.0))
+```
+
+| mode | score | uses potentials | uses geometry |
+|------|-------|:---------------:|:-------------:|
+| `"geometric"` *(default)* | `-dist_dev_weight * dist_deviations` | ✗ | ✓ |
+| `"potential"` | `pot_weight * potentials` | ✓ | ✗ |
+| `"combined"` | `pot_weight * potentials - dist_dev_weight * dist_deviations` | ✓ | ✓ |
+
+> **Note on `combined`:** potentials and distance deviations are on different scales (e.g. arbitrary
+> attractiveness units vs. metres), so tune `pot_weight` / `dist_dev_weight` for your data (or pre-scale
+> your potentials). Scores are intentionally left un-normalised because the solver sums per-segment scores
+> as it recurses; normalising would make them non-additive across the chain.
+
+You can also pass any object exposing a compatible `score(*, potentials=None, dist_deviations=None)` method,
+and likewise a custom `selector`. `cs.Scorer`, `cs.Selector`, and `cs.ScoreMode` are exported from the package.
 
 
