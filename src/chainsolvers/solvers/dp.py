@@ -13,28 +13,35 @@ per free node (plus singleton layers for S and E), weight each inter-layer edge
 by the leg's distance deviation minus the destination's potential, and the
 minimum-cost S->E path is the *exact global optimum* over the candidate sets.
 
-Solvers here share that layered graph and differ only in how they solve / what
-candidates they feed it:
+Every solver except ``DpFull`` (registry ``dp_full``) is a *pruned* DP: it reuses CARLA's
+geometric candidate generation rather than the whole catalog, so it is exact only over the
+candidates it generates -- NOT a "pure" DP. Only ``dp_full`` is the unpruned, globally exact
+DP. The variants (registry key in parentheses) are:
 
-- ``Dp``      : geometric per-node candidate generation (overlapping-ring
-               triangle-inequality envelopes) + exact shortest path via SciPy's
-               compressed-sparse-graph routines.
-- ``CarlaDp`` : same DP, but uses CARLA's circle-intersection generation for the
-               single-intermediate (two-leg) case, mirroring CARLA's candidate
-               generation so a ``carla`` vs ``carla_dp`` comparison isolates the
-               value of CARLA's *search* (recursive branching) vs exact DP.
-- ``Milp``    : same candidate generation as ``Dp``, but solves the assignment as
-               a min-cost-flow / shortest-path MILP via ``scipy.optimize.milp``
-               (HiGHS). On the pure separable chain this returns the identical
-               optimum to DP -- it is an *oracle* for validation and the natural
-               vehicle for future non-separable side constraints. It does not
-               scale like DP; use it on small instances.
+- ``DpFull``        (``dp_full``)        : exact DP over the FULL per-type catalog -> the
+                     true global optimum of the separable objective; an oracle, O(n*N^2),
+                     not scalable. The only *pure* DP here.
+- ``Dp``            (``dp_rings``)       : exact DP over overlapping-ring (triangle-inequality)
+                     envelope candidates per free node.
+- ``CarlaDp``       (``dp_carla``)       : exact DP over CARLA's full generation -- ring
+                     envelopes plus circle-intersection for the single-intermediate (two-leg)
+                     case. Same candidates as ``carla``, so ``carla`` vs ``dp_carla`` isolates
+                     CARLA's recursive *search* against exact DP.
+- ``DpRefine``      (``dp_rings_refine``)/ ``CarlaDpRefine`` (``dp_carla_refine``)
+                     : the above + iterative neighbour-based candidate refinement (monotone).
+- ``DpPotential``   (``dp_carla_pot``)   : ``dp_carla_refine`` + potential-aware pooling --
+                     each pool is augmented with the top-K facilities by potential, so the
+                     pruned DP stays near-exact for the COMBINED (alpha > 0) objective.
+- ``Milp``          (``milp``)           : the same candidate generation as ``dp_rings``,
+                     solved as a min-cost-flow / shortest-path MILP via ``scipy.optimize.milp``
+                     (HiGHS). Returns DP's optimum on the separable chain -- an oracle for
+                     validation and the natural home for future non-separable constraints.
 
-Note: candidate generation prunes by distance geometry. That prune is
-optimum-preserving for the distance-only objective; once potentials matter
-(alpha > 0) it can in principle exclude the potential-optimal facility, so these
-solvers are exact *over the generated candidate set* (globally exact only when
-that set is an admissible superset). The default scorer is geometric (alpha = 0),
+Note: CARLA's geometric generation prunes by distance. That prune is optimum-preserving
+for the distance-only objective; once potentials matter (alpha > 0) it can exclude the
+potential-optimal facility, so the pruned solvers are exact *over the generated candidate
+set* only. ``DpPotential`` mitigates this by injecting high-potential facilities into every
+pool; ``DpFull`` removes the prune entirely. The default scorer is geometric (alpha = 0),
 for which the tight ring is sound.
 """
 
@@ -71,9 +78,10 @@ Choice = Tuple[Any, np.ndarray, float]             # (id, coord (2,), potential)
 class DpConfig:
     min_candidates: int = 50          # minimum candidate facilities to generate per free node
     max_iterations: int = 1000        # ring-expansion iterations before giving up
-    use_circle_intersection: bool = False  # CarlaDp sets True (precise two-leg generation)
+    use_circle_intersection: bool = False  # CarlaDp sets True (precise circle-intersection two-leg generation)
     refine_passes: int = 0            # iterative neighbour-based refinement passes (0 = one-shot)
     refine_min_candidates: int = 20   # candidates per node generated during refinement
+    pot_pool_k: int = 0               # if >0, augment every pool with the top-K facilities by potential
 
 
 def _alpha_beta_from_scorer(scorer: Any) -> Tuple[float, float]:
@@ -305,6 +313,7 @@ class Dp:
     _use_circle_intersection: bool = False
     _method: str = "dp"
     _refine_passes: int = 0
+    _pot_pool_k: int = 0
 
     def required_leg_fields(self) -> set[str]:
         return {"unique_leg_id", "distance", "from_location", "to_location", "to_act_type"}
@@ -330,8 +339,10 @@ class Dp:
         cfg_params = dict(params)
         cfg_params.setdefault("use_circle_intersection", self._use_circle_intersection)
         cfg_params.setdefault("refine_passes", self._refine_passes)
+        cfg_params.setdefault("pot_pool_k", self._pot_pool_k)
         self.config = DpConfig(**cfg_params)
         self.alpha, self.beta = _alpha_beta_from_scorer(scorer)
+        self._pot_top_cache: dict = {}
 
     def solve(self, *, plans):
         progress_fn = self.progress or (lambda it, **k: it)
@@ -384,23 +395,60 @@ class Dp:
             chosen = new_chosen
         return chosen
 
+    def _top_by_potential(self, act_type) -> Pool:
+        """The top-`pot_pool_k` facilities of a type by potential (cached per type)."""
+        cached = self._pot_top_cache.get(act_type)
+        if cached is not None:
+            return cached
+        k = self.config.pot_pool_k
+        pots_all = np.asarray(self.locations.potentials[act_type], dtype=float)
+        n = pots_all.shape[0]
+        idx = np.arange(n) if k >= n else np.argpartition(pots_all, -k)[-k:]
+        res = (
+            self.locations.identifiers[act_type][idx],
+            np.asarray(self.locations.coordinates[act_type], dtype=float)[idx],
+            pots_all[idx],
+        )
+        self._pot_top_cache[act_type] = res
+        return res
+
+    def _augment_with_potential(self, act_type, pool: Pool) -> Pool:
+        """Union the geometric pool with the top-K facilities by potential (deduped by id).
+        No-op when `pot_pool_k == 0`. Lets the pruned DP reach high-potential facilities that
+        the distance envelope would otherwise exclude (relevant only for alpha > 0)."""
+        if self.config.pot_pool_k <= 0:
+            return pool
+        ids, coords, pots = pool
+        t_ids, t_coords, t_pots = self._top_by_potential(act_type)
+        existing = set(np.asarray(ids).tolist())
+        keep = [i for i, tid in enumerate(t_ids.tolist()) if tid not in existing]
+        if keep:
+            keep = np.asarray(keep, dtype=int)
+            ids = np.concatenate([ids, t_ids[keep]])
+            coords = np.vstack([coords, t_coords[keep]])
+            pots = np.concatenate([pots, t_pots[keep]])
+        return ids, coords, pots
+
     def _gen_pool_local(self, act_type, Lc, Rc, dL, dR) -> Pool:
         """Tight candidate pool for a node bracketed by two provisional neighbour
         points (single leg to each): circle-intersection, falling back to rings."""
+        pool = None
         try:
             ids, coords, pots = self.locations.get_circle_intersection_candidates(
                 Lc, Rc, act_type, float(dL), float(dR), self.config.refine_min_candidates, unsafe=True,
             )
             if ids is not None and ids.size > 0:
-                return ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float)
+                pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
         except RuntimeError:
             pass
-        (ids, coords, pots), _ = self.locations.get_overlapping_rings_candidates(
-            act_type, Lc, Rc, float(dL), float(dL), float(dR), float(dR),
-            min_candidates=self.config.refine_min_candidates,
-            max_iterations=self.config.max_iterations,
-        )
-        return ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float)
+        if pool is None:
+            (ids, coords, pots), _ = self.locations.get_overlapping_rings_candidates(
+                act_type, Lc, Rc, float(dL), float(dL), float(dR), float(dR),
+                min_candidates=self.config.refine_min_candidates,
+                max_iterations=self.config.max_iterations,
+            )
+            pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
+        return self._augment_with_potential(act_type, pool)
 
     def _gen_pool(self, segment, S, E, distances, fj) -> Pool:
         """Candidate facilities for free node_{fj+1}, bounded by the triangle-inequality
@@ -410,8 +458,8 @@ class Dp:
         left = distances[: fj + 1]
         right = distances[fj + 1:]
 
-        # Single intermediate with one leg to each fixed endpoint -> optional precise
-        # circle-intersection generation (CarlaDp).
+        pool = None
+        # Single intermediate with one leg to each fixed endpoint -> precise circle-intersection.
         if self.config.use_circle_intersection and n == 2:
             try:
                 ids, coords, pots = self.locations.get_circle_intersection_candidates(
@@ -419,39 +467,42 @@ class Dp:
                     self.config.min_candidates, unsafe=True,
                 )
                 if ids is not None and ids.size > 0:
-                    return ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float)
+                    pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
             except RuntimeError:
                 pass  # degenerate / no intersection -> fall back to rings
 
-        r1_min, r1_max = h.get_min_max_distance(left)
-        r2_min, r2_max = h.get_min_max_distance(right)
-        min_c = min(self.config.min_candidates, self.locations.identifiers[act_type].shape[0])
-        (ids, coords, pots), _ = self.locations.get_overlapping_rings_candidates(
-            act_type, S, E, r1_max, r1_min, r2_max, r2_min,
-            min_candidates=min_c,
-            max_iterations=self.config.max_iterations,
-        )
-        if ids is None or ids.size == 0:
-            raise RuntimeError(f"No candidates for free node {fj} (type {act_type!r}).")
-        return ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float)
+        if pool is None:
+            r1_min, r1_max = h.get_min_max_distance(left)
+            r2_min, r2_max = h.get_min_max_distance(right)
+            min_c = min(self.config.min_candidates, self.locations.identifiers[act_type].shape[0])
+            (ids, coords, pots), _ = self.locations.get_overlapping_rings_candidates(
+                act_type, S, E, r1_max, r1_min, r2_max, r2_min,
+                min_candidates=min_c,
+                max_iterations=self.config.max_iterations,
+            )
+            if ids is None or ids.size == 0:
+                raise RuntimeError(f"No candidates for free node {fj} (type {act_type!r}).")
+            pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
+
+        return self._augment_with_potential(act_type, pool)
 
 
 class CarlaDp(Dp):
-    """CARLA's geometric candidate generation (incl. circle-intersection for the
-    single-intermediate case) feeding the exact DP optimizer. Holding generation
-    fixed against the ``carla`` solver isolates the value of exact search vs
-    recursive branching."""
+    """``dp_carla``: exact DP over **CARLA's** candidate generation — overlapping-ring
+    envelopes plus circle-intersection for the single-intermediate (two-leg) case. Holding
+    generation fixed against the ``carla`` solver, a ``carla`` vs ``dp_carla`` comparison
+    isolates the value of CARLA's *search* (recursive branching) against exact DP."""
 
     _use_circle_intersection: bool = True
     _method: str = "dp"
 
 
 class DpRefine(Dp):
-    """Exact DP with iterative neighbour-based candidate refinement. Starts from the
-    one-shot ``Dp`` solution, then re-brackets each node by its provisional neighbours
-    and re-solves until convergence -- closing the candidate-recall gap that endpoint-
-    anchored generation leaves on long chains, while remaining monotone (never worse
-    than ``Dp``)."""
+    """``dp_rings_refine``: ``dp_rings`` + iterative neighbour-based candidate refinement.
+    Starts from the one-shot solution, then re-brackets each node by its provisional
+    neighbours and re-solves until convergence -- closing the candidate-recall gap that
+    endpoint-anchored generation leaves on long chains, while remaining monotone (never
+    worse than ``dp_rings``)."""
 
     _refine_passes: int = 5
 
@@ -533,20 +584,29 @@ class DpSample(Dp):
         return _build_placed_segment(segment, chosen)
 
 
-class CarlaDpRefine(DpRefine):
-    """Production 'best' exact (argmin) solver: CARLA circle-intersection generation for
-    the single-intermediate case + iterative neighbour refinement, on the exact DP.
-    A clean superset of both `carla_dp` and `dp_refine`."""
+class CarlaDpRefine(CarlaDp):
+    """``dp_carla_refine``: ``dp_carla`` (CARLA's circle-intersection generation) + iterative
+    neighbour refinement -- the most accurate *distance-only* argmin in the pruned family."""
 
-    _use_circle_intersection: bool = True
     _refine_passes: int = 5
 
 
+class DpPotential(CarlaDpRefine):
+    """``dp_carla_pot``: ``dp_carla_refine`` **plus** potential-aware pooling -- each free-node
+    pool is augmented with the top-`pot_pool_k` facilities by potential, so high-attraction
+    locations the distance envelope would prune stay reachable. This keeps the pruned DP
+    near-exact for the COMBINED (alpha > 0) objective -- the gap the other pruned solvers
+    leave when potentials matter -- without paying ``dp_full``'s O(n*N^2). For the distance-only
+    objective (alpha = 0) it matches ``dp_carla_refine``. Set `pot_pool_k` large to approach
+    ``dp_full``."""
+
+    _pot_pool_k: int = 64
+
+
 class Milp(Dp):
-    """Exact MILP oracle (scipy.optimize.milp / HiGHS) over the same candidate
-    generation as ``Dp``. Equals DP on the pure separable chain; intended for
+    """``milp``: exact MILP oracle (scipy.optimize.milp / HiGHS) over the same candidate
+    generation as ``dp_rings``. Equals DP on the pure separable chain; intended for
     validation on small instances and as the home for future non-separable
     constraints. Does not scale like DP."""
 
-    _use_circle_intersection: bool = False
     _method: str = "milp"

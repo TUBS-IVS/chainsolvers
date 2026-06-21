@@ -82,20 +82,26 @@ The only public exports (`chainsolvers/__init__.py`) are `setup` and `solve`.
 - **`solvers/carla.py`**: Main CARLA solver — recursive anchor-based placement.
 - **`solvers/carla_plus.py`**: Household-level solver — **currently a placeholder** (all methods
   raise `NotImplementedError`).
-- **`solvers/dp.py`**: Exact solvers (`Dp`, `CarlaDp`, `DpRefine`, `Milp`). The separable objective
-  is a layered shortest path; per segment they generate candidate facilities per free node
-  (overlapping-ring envelopes; `CarlaDp` also uses circle-intersection for the single-intermediate
-  case) via the shared `solve_chain(...)` core. `Dp`/`CarlaDp` solve it with
-  `scipy.sparse.csgraph.shortest_path`; `Milp` solves the identical assignment as a min-cost-flow
-  MILP via `scipy.optimize.milp` (HiGHS) — an exact oracle for validation / future non-separable
-  constraints, not scalable. `DpRefine` adds iterative neighbour-based candidate refinement
-  (`_refine`): re-bracket each node by its provisional neighbours, carry the previous choice
-  forward (monotone), re-solve until convergence — closes the recall gap that one-shot endpoint
-  generation leaves. `DpFull` runs the exact DP over the **full candidate set per activity type**
-  (no pruning) → the **true global optimum** of the separable objective (`O(n·N²)`; an oracle, not
-  scalable). All read `alpha`/`beta` from the injected `Scorer` (mode/weights) so they optimize the
-  *same* objective as CARLA. `Dp`/`CarlaDp`/`DpRefine` are exact over their generated candidate set;
-  `DpFull`/`Milp` are exact globally.
+- **`solvers/dp.py`**: Exact solvers. Registry key → class: `dp_full`→`DpFull`, `dp_rings`→`Dp`,
+  `dp_carla`→`CarlaDp`, `dp_rings_refine`→`DpRefine`, `dp_carla_refine`→`CarlaDpRefine`,
+  `dp_carla_pot`→`DpPotential`, `milp`→`Milp`. The separable objective is a layered shortest path; per
+  segment they generate candidate facilities per free node via the shared `solve_chain(...)` core.
+  **Only `dp_full` is a pure (unpruned) DP** → exact over the **full per-type catalog** (`O(n·N²)`; the
+  true global optimum; an oracle, not scalable). Every other DP-family solver is *pruned*: it reuses
+  **CARLA's** geometric generation, so it is exact only over the candidates it generates. `dp_rings`
+  uses overlapping-ring (triangle-inequality) envelopes; `dp_carla` adds circle-intersection for the
+  single-intermediate (two-leg) case (= CARLA's exact generation, so `carla` vs `dp_carla` isolates
+  search vs branching). `dp_rings_refine`/`dp_carla_refine` add iterative neighbour-based candidate
+  refinement (`_refine`): re-bracket each node by its provisional neighbours, carry the previous choice
+  forward (monotone), re-solve until convergence — closing the recall gap one-shot endpoint generation
+  leaves. `dp_carla_pot` adds **potential-aware pooling** (`pot_pool_k`): augment every pool with the
+  top-K facilities by potential, keeping the pruned DP near-exact for the **combined** (α>0) objective
+  the distance envelope would otherwise prune. `Milp` solves the identical assignment as a min-cost-flow
+  MILP via `scipy.optimize.milp` (HiGHS) — an exact oracle (== `dp_rings`) for validation / future
+  non-separable constraints, not scalable. All read `alpha`/`beta` from the injected `Scorer`
+  (mode/weights) so they optimize the *same* objective as CARLA. The pruned solvers are exact over
+  their generated candidate set; `dp_full` is exact globally (`milp` == `dp_rings`); `dp_carla_pot`
+  and `dp_full` extend exactness toward the combined (α>0) objective.
 **`research/chainsolvers_eval/` is a separate, non-distributed package** (imported as
 `chainsolvers_eval`, install via `pip install -e ./research`). The library core never depends on it
 — core → `chainsolvers_eval` imports are forbidden and enforced by
@@ -192,9 +198,17 @@ RunnerContext (LocationsIndex, solver, scorer, selector, rng, name_lookup)
 
 ### Solver Registry & Contract
 
-Registered solvers (`SOLVER_REGISTRY` in `run.py`): `carla`, `carla_plus` (stub), `dp`, `carla_dp`,
-`dp_refine`, `carla_dp_refine` (circle-intersection + refinement; the "best" argmin), `dp_full`,
-`dp_sample` (generative MNL forward–backward sampler), `milp`.
+Registered solvers (`SOLVER_REGISTRY` in `run.py`): `carla`, `carla_plus` (stub), and the DP family.
+**Only `dp_full` is a pure (unpruned) DP** — exact DP over the full per-type catalog → true global
+optimum; oracle, not scalable. Every other DP-family solver is *pruned* (reuses **CARLA's** geometric
+generation, so it is exact only over its generated candidate set):
+- `dp_rings` — pruned DP over overlapping-ring (triangle-inequality) envelope candidates.
+- `dp_carla` — pruned DP over CARLA's generation (ring envelopes + 2-leg circle-intersection); same
+  candidates as `carla`, so `carla` vs `dp_carla` isolates search vs branching.
+- `dp_rings_refine` / `dp_carla_refine` — the above + iterative neighbour refinement (monotone).
+- `dp_carla_pot` — `dp_carla_refine` + potential-aware pooling (augments each pool with the top-K
+  facilities by potential, keeping the pruned DP near-exact for the **combined** α>0 objective).
+- `dp_sample` — generative MNL forward–backward sampler. `milp` — MILP oracle (== `dp_rings`).
 A solver class is instantiated with
 `locations, rng, progress, stats, scorer, selector, visualizer, **parameters` and must provide:
 

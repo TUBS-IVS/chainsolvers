@@ -19,7 +19,7 @@ from .locations import Locations
 from .scoring_selection import Scorer, Selector
 from .solvers.carla import Carla
 from .solvers.carla_plus import CarlaPlus
-from .solvers.dp import Dp, CarlaDp, DpRefine, CarlaDpRefine, DpFull, DpSample, Milp
+from .solvers.dp import Dp, CarlaDp, DpRefine, CarlaDpRefine, DpPotential, DpFull, DpSample, Milp
 from .types import PlanColumns, SegmentedPlans, Households
 from . import io
 
@@ -37,13 +37,14 @@ class RunnerContext:
 SOLVER_REGISTRY: dict[str, Type[Any]] = {
     "carla": Carla,
     "carla_plus": CarlaPlus,
-    "dp": Dp,
-    "carla_dp": CarlaDp,
-    "dp_refine": DpRefine,
-    "carla_dp_refine": CarlaDpRefine,
-    "dp_full": DpFull,
-    "dp_sample": DpSample,
-    "milp": Milp,
+    "dp_full": DpFull,               # the pure DP: exact over the full per-type catalog (global-optimum oracle)
+    "dp_rings": Dp,                  # pruned DP over ring-envelope candidates
+    "dp_carla": CarlaDp,             # pruned DP over CARLA's generation (rings + 2-leg circle-intersection)
+    "dp_rings_refine": DpRefine,     # dp_rings + iterative neighbour refinement
+    "dp_carla_refine": CarlaDpRefine,# dp_carla + iterative neighbour refinement
+    "dp_carla_pot": DpPotential,     # dp_carla_refine + potential-aware pooling (near-exact for combined obj)
+    "dp_sample": DpSample,           # generative forward-backward MNL sampler
+    "milp": Milp,                    # MILP oracle (== dp_rings)
 }
 
 # The input formats a solver may request via its `wanted_format` attribute.

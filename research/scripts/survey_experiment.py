@@ -81,7 +81,7 @@ def main(argv=None):
     print("Track 1 -- direct chains on surveyed persons (deviation vs true optimum):")
     opt = None
     rows = []
-    for solver in ["dp_full", "carla", "carla_dp_refine"]:
+    for solver in ["dp_full", "carla", "dp_carla_refine"]:
         ctx = run.setup(locations_tuple=loc_struct, solver=solver, rng_seed=7)
         rdf, _, _ = run.solve(ctx=ctx, plans_df=survey_plans)
         dev = _total_dev(rdf) / survey_plans["unique_person_id"].nunique()
@@ -112,7 +112,7 @@ def main(argv=None):
 
     # status-quo: resample distances from the survey distribution, then argmin-place
     resampled = sv.resample_distances(study_plans, study_gt, samples, np.random.default_rng(args.seed + 2))
-    ctx = run.setup(locations_tuple=loc_struct, solver="carla_dp_refine", rng_seed=7)
+    ctx = run.setup(locations_tuple=loc_struct, solver="dp_carla_refine", rng_seed=7)
     rdf_sq, _, _ = run.solve(ctx=ctx, plans_df=resampled)
     w = wasserstein_distance(np.clip(_free_dist(rdf_sq, study_free), 0, clip), np.clip(obs, 0, clip))
     rec, _ = _recovery(rdf_sq, study_gt, study_free)

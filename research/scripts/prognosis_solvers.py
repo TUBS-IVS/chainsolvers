@@ -5,7 +5,7 @@ Forecasting regime: the counterfactual has NO observed per-leg distances (it's t
 future). So every solver is given the counterfactual chains' anchors + activity types,
 and the NEW (shocked) structural attractiveness, but must source distances itself:
 
-  - argmin solvers (carla, carla_dp, dp_refine, carla_dp_refine, dp_full): need a target
+  - argmin solvers (carla, dp_rings, dp_carla, dp_carla_refine, dp_carla_pot, dp_full): need a target
     distance to match -> fed BASELINE-distribution-resampled distances (which do NOT
     encode the shock), run in `combined` mode. Their only route to elasticity is the
     attractiveness term tipping the choice among distance-compatible candidates.
@@ -19,7 +19,7 @@ and therefore ad hoc -- `--attr-meters` sets how many metres of deviation one un
 log-attractiveness is worth; sweep it to see how weight-sensitive the (weak) elasticity is.
 
     python scripts/prognosis_solvers.py --persons 800 --boost 6 \
-        --solvers carla carla_dp_refine dp_full dp_sample --attr-meters 800
+        --solvers carla dp_carla_refine dp_full dp_sample --attr-meters 800
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ from chainsolvers_eval.calibration import fit_location_choice
 from chainsolvers_eval import survey as sv
 
 TRANSFORM = "log"  # match the DGP gravity form (utility propto log(size)); strictly-positive sizes
-ARGMIN = {"carla", "dp", "carla_dp", "dp_refine", "carla_dp_refine", "dp_full", "milp"}
+ARGMIN = {"carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", "dp_carla_pot", "dp_full", "milp"}
 
 
 def _share(ids, district_ids):
@@ -58,7 +58,7 @@ def main(argv=None):
     p.add_argument("--attr-meters", type=float, default=800.0,
                    help="argmin combined mode: metres of deviation one log-attractiveness unit is worth")
     p.add_argument("--solvers", nargs="+",
-                   default=["carla", "carla_dp_refine", "dp_full", "dp_sample"])
+                   default=["carla", "dp_carla_refine", "dp_full", "dp_sample"])
     p.add_argument("--seed", type=int, default=42)
     args = p.parse_args(argv)
 
@@ -113,10 +113,10 @@ def main(argv=None):
         print(f"{label:17s} {regime:10s} {share*100:7.1f}% {abs(share-true_cf)*100:9.1f}pp {w:8.0f}")
 
     # zero-elasticity floor: an argmin in geometric mode (no attractiveness at all).
-    ctx = run.setup(locations_tuple=loc_gen, solver="carla_dp_refine", rng_seed=7,
+    ctx = run.setup(locations_tuple=loc_gen, solver="dp_carla_refine", rng_seed=7,
                     scorer=Scorer(mode="geometric"))
     rdf, _, _ = run.solve(ctx=ctx, plans_df=forecast_plans)
-    score(rdf, "carla_dp_refine", "geom(floor)")
+    score(rdf, "dp_carla_refine", "geom(floor)")
 
     for solver in args.solvers:
         try:

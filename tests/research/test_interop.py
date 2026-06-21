@@ -27,7 +27,7 @@ def test_reimport_assignments_reconstructs_chain(tmp_path):
     # Use our dp solver's output as a stand-in "external tool"; export, then reconstruct
     # the result_df purely from the free-leg assignments and check it matches.
     w = generate_world(n_locations=300, n_persons=60, rng=np.random.default_rng(1))
-    ctx = run.setup(locations_tuple=w.locations_tuple, solver="dp", rng_seed=7)
+    ctx = run.setup(locations_tuple=w.locations_tuple, solver="dp_carla", rng_seed=7)
     rdf, _, _ = run.solve(ctx=ctx, plans_df=w.plans_df)
 
     free = set(w.ground_truth.loc[w.ground_truth.to_is_free, "unique_leg_id"])

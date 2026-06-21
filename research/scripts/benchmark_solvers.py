@@ -9,7 +9,7 @@ Runs out of the box on synthetic data, or on your own CSVs:
     # real data (expects chainsolvers' default column schemas)
     python scripts/benchmark_solvers.py \
         --locations-csv facilities.csv --plans-csv plans.csv \
-        --solvers carla carla_dp dp
+        --solvers carla dp_carla dp_carla_refine
 
 Locations CSV uses LocationColumns defaults (id, activities, x, y, potentials, name);
 `activities`/`potentials` may be ';'-separated for multi-type facilities.
@@ -46,7 +46,7 @@ from chainsolvers_eval.synth import (
 # metrics
 # --------------------------------------------------------------------------- #
 
-_DP_FAMILY = {"dp", "carla_dp", "dp_refine", "milp"}  # dp_full ignores min_candidates (uses all)
+_DP_FAMILY = {"dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", "dp_carla_pot", "milp"}  # dp_full ignores min_candidates (uses all)
 
 
 def _params_for(solver: str, args) -> dict | None:
@@ -277,7 +277,7 @@ def scaling_benchmark(args, rng):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--solvers", nargs="+", default=["carla", "carla_dp", "dp", "dp_refine"],
+    p.add_argument("--solvers", nargs="+", default=["carla", "dp_rings", "dp_carla", "dp_carla_refine"],
                    help="solvers to compare (first is the win/tie/loss baseline)")
     p.add_argument("--oracle", action="store_true",
                    help="also run the exact MILP oracle and report opt%% / %%gap (small instances only)")

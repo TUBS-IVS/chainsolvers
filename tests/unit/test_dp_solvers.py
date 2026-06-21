@@ -3,10 +3,11 @@
 Covers:
 - `solve_chain` (DP) returns the exact optimum vs brute-force enumeration.
 - MILP oracle returns the same optimum as DP over identical candidate pools.
-- End-to-end parity: `dp` == `carla_dp` for chains longer than two legs
-  (they differ only in single-intermediate candidate generation).
-- End-to-end validity for `dp`, `carla_dp`, `milp` through setup/solve.
+- End-to-end validity for the whole dp family (`dp_rings`, `dp_carla`, `*_refine`,
+  `dp_carla_pot`, `dp_full`, `milp`) through setup/solve.
 - DP is never worse than CARLA on total distance deviation (search is exact).
+- Potential-aware pooling (`dp_carla_pot`) improves the combined objective and, with
+  full pooling, reproduces `dp_full`'s exact optimum.
 """
 
 import itertools
@@ -16,6 +17,7 @@ import pandas as pd
 import pytest
 
 from chainsolvers import run
+from chainsolvers.scoring_selection import Scorer
 from chainsolvers.solvers.dp import solve_chain
 
 
@@ -65,6 +67,23 @@ def _grid_locations(types, lo=-10.0, hi=60.0, step=5.0):
     coords = {t: grid.copy() for t in types}
     pots = {t: np.ones(len(grid)) for t in types}
     return ids, coords, pots
+
+
+def _rand_locations(types, n=150, box=60.0, seed=0):
+    """Random facilities with non-uniform potentials (so the combined objective bites)."""
+    rng = np.random.default_rng(seed)
+    coords = {t: rng.uniform(-box, box, size=(n, 2)) for t in types}
+    ids = {t: np.array([f"{t}_{i}" for i in range(n)], dtype=object) for t in types}
+    pots = {t: rng.uniform(0.1, 10.0, size=n) for t in types}
+    return ids, coords, pots
+
+
+def _combined_obj(rdf, pot_w, dist_w):
+    """alpha*sum(potential over placed nodes) - beta*sum(|Δd| over all legs)."""
+    actual = np.hypot(rdf.to_x - rdf.from_x, rdf.to_y - rdf.from_y)
+    dev = np.abs(rdf.distance_meters - actual).sum()
+    pot = rdf.loc[rdf.to_act_identifier.notna(), "to_act_potential"].sum()
+    return pot_w * float(pot) - dist_w * float(dev)
 
 
 def _chain_df(act_types, distances, start=(0.0, 0.0), end=(50.0, 0.0)):
@@ -138,39 +157,60 @@ def test_single_free_node_picks_best():
 # end-to-end through setup/solve
 # --------------------------------------------------------------------------- #
 
-def test_dp_carla_dp_milp_run_and_valid():
+def test_dp_family_run_and_valid():
     types = ["work", "shop", "leisure"]
     loc = _grid_locations(types)
     df = _chain_df(["work", "shop", "leisure", "hotel"], [20.0, 15.0, 15.0, 20.0])
-    for solver in ["dp", "carla_dp", "dp_refine", "carla_dp_refine", "milp"]:
+    for solver in ["dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine",
+                   "dp_carla_pot", "dp_full", "milp"]:
         ctx = run.setup(locations_tuple=loc, solver=solver, rng_seed=42)
         rdf, plans, valid = run.solve(ctx=ctx, plans_df=df)
         assert valid, f"{solver} produced invalid output"
         assert len(rdf) == 4
 
 
-def test_dp_equals_carla_dp_for_long_chains():
-    # They differ only in the single-intermediate (2-leg) generation, so for
+def test_dp_rings_equals_dp_carla_for_long_chains():
+    # dp_rings and dp_carla differ only in single-intermediate (2-leg) generation, so for
     # chains with >= 2 free nodes the placements must coincide.
     types = ["work", "shop", "leisure"]
     loc = _grid_locations(types)
     df = _chain_df(["work", "shop", "leisure", "hotel"], [18.0, 14.0, 16.0, 22.0])
 
     out = {}
-    for solver in ["dp", "carla_dp"]:
+    for solver in ["dp_rings", "dp_carla"]:
         ctx = run.setup(locations_tuple=loc, solver=solver, rng_seed=42)
         rdf, _, _ = run.solve(ctx=ctx, plans_df=df)
         out[solver] = rdf.sort_values("unique_leg_id").reset_index(drop=True)
 
     for col in ["to_x", "to_y", "to_act_identifier"]:
-        a, b = out["dp"][col].to_numpy(), out["carla_dp"][col].to_numpy()
-        # The END anchor leg has no identifier (NaN); NaN == NaN is False, so
-        # treat positions that are NaN in both as equal.
+        a, b = out["dp_rings"][col].to_numpy(), out["dp_carla"][col].to_numpy()
         assert ((a == b) | (pd.isna(a) & pd.isna(b))).all(), col
 
 
+def test_dp_carla_pot_full_pooling_matches_dp_full():
+    # Potential-aware pooling with K >= catalog == full-catalog DP, so on the COMBINED
+    # objective dp_carla_pot reproduces dp_full's exact global optimum (same facilities).
+    n_loc = 150
+    ids, coords, pots = _rand_locations(["a0", "a1"], n=n_loc, seed=4)
+    df = _chain_df(["a0", "a1", "END"], [22.0, 18.0, 25.0])
+    sc = Scorer(mode="combined", pot_weight=40.0, dist_dev_weight=1.0)
+
+    out = {}
+    for solver, params in [("dp_full", None),
+                           ("dp_carla_pot", {"pot_pool_k": n_loc, "min_candidates": 6})]:
+        ctx = run.setup(locations_tuple=(ids, coords, pots), solver=solver, scorer=sc,
+                        rng_seed=1, parameters=params)
+        rdf, _, _ = run.solve(ctx=ctx, plans_df=df)
+        out[solver] = rdf.sort_values("unique_leg_id").reset_index(drop=True)
+
+    a = out["dp_carla_pot"]["to_act_identifier"].to_numpy()
+    b = out["dp_full"]["to_act_identifier"].to_numpy()
+    # The END leg has no identifier (NaN); treat both-NaN as equal.
+    assert ((a == b) | (pd.isna(a) & pd.isna(b))).all()
+
+
 def test_dp_not_worse_than_carla():
-    # Exact search cannot lose to heuristic branching when generation is comparable.
+    # Exact search cannot lose to heuristic branching on the same (CARLA) candidates.
     rng = np.random.default_rng(7)
     n_legs = 6
     types = [f"a{j}" for j in range(n_legs - 1)] + ["END"]
@@ -181,20 +221,21 @@ def test_dp_not_worse_than_carla():
     df = _chain_df(types, rng.uniform(12, 28, size=n_legs).tolist())
 
     devs = {}
-    for solver in ["carla", "dp", "carla_dp"]:
+    for solver in ["carla", "dp_rings", "dp_carla"]:
         ctx = run.setup(locations_tuple=(ids, coords, pots), solver=solver, rng_seed=42)
         rdf, _, valid = run.solve(ctx=ctx, plans_df=df)
         assert valid
         devs[solver] = _total_dev(rdf)
 
-    # DP is exact over its candidate set; allow a tiny tolerance for float noise.
-    assert devs["dp"] <= devs["carla"] + 1e-6
-    assert devs["dp"] == pytest.approx(devs["carla_dp"], abs=1e-6)
+    # dp_carla uses carla's generation -> exact search cannot lose to branching;
+    # dp_rings/dp_carla coincide for >= 2 free nodes.
+    assert devs["dp_carla"] <= devs["carla"] + 1e-6
+    assert devs["dp_rings"] == pytest.approx(devs["dp_carla"], abs=1e-6)
 
 
 def test_dp_refine_never_worse_than_dp():
-    # Iterative refinement starts from the one-shot DP solution and carries the
-    # previous choice forward, so it is monotone: never worse than `dp`.
+    # Iterative refinement starts from the one-shot solution and carries the previous
+    # choice forward, so it is monotone: never worse than dp_rings.
     rng = np.random.default_rng(11)
     n_legs = 7
     types = [f"a{j}" for j in range(n_legs - 1)] + ["END"]
@@ -205,12 +246,12 @@ def test_dp_refine_never_worse_than_dp():
     df = _chain_df(types, rng.uniform(12, 28, size=n_legs).tolist())
 
     devs = {}
-    for solver in ["dp", "dp_refine"]:
+    for solver in ["dp_rings", "dp_rings_refine"]:
         ctx = run.setup(locations_tuple=(ids, coords, pots), solver=solver, rng_seed=42)
         rdf, _, valid = run.solve(ctx=ctx, plans_df=df)
         assert valid
         devs[solver] = _total_dev(rdf)
-    assert devs["dp_refine"] <= devs["dp"] + 1e-6
+    assert devs["dp_rings_refine"] <= devs["dp_rings"] + 1e-6
 
 
 def test_dp_full_is_global_lower_bound():
@@ -225,16 +266,34 @@ def test_dp_full_is_global_lower_bound():
     pots = {t: np.ones(120) for t in facility_types}
     df = _chain_df(types, rng.uniform(12, 26, size=n_legs).tolist())
 
+    pruned = {"dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"}
     devs = {}
-    for solver in ["carla", "dp", "carla_dp", "dp_refine", "dp_full"]:
+    for solver in ["carla", *sorted(pruned), "dp_full"]:
         ctx = run.setup(locations_tuple=(ids, coords, pots), solver=solver, rng_seed=42,
-                        parameters={"min_candidates": 8} if solver in {"dp", "carla_dp", "dp_refine"} else None)
+                        parameters={"min_candidates": 8} if solver in pruned else None)
         rdf, _, valid = run.solve(ctx=ctx, plans_df=df)
         assert valid
         devs[solver] = _total_dev(rdf)
 
     g = devs["dp_full"]
-    for s in ["carla", "dp", "carla_dp", "dp_refine"]:
+    for s in ["carla", *pruned]:
         assert devs[s] >= g - 1e-6, f"{s}={devs[s]} beat the global optimum {g}"
-    # refinement should be no worse than one-shot dp and no better than global
-    assert g - 1e-6 <= devs["dp_refine"] <= devs["dp"] + 1e-6
+    # refinement should be no worse than its one-shot base and no better than global
+    assert g - 1e-6 <= devs["dp_carla_refine"] <= devs["dp_carla"] + 1e-6
+
+
+def test_potential_pooling_improves_combined_objective():
+    # One-shot DP with potential pooling searches a superset of the plain envelope pool,
+    # so its combined-objective value cannot be worse (monotone in the candidate set).
+    ids, coords, pots = _rand_locations(["a0", "a1", "a2"], n=200, seed=9)
+    df = _chain_df(["a0", "a1", "a2", "END"], [20.0, 16.0, 18.0, 22.0])
+    sc = Scorer(mode="combined", pot_weight=50.0, dist_dev_weight=1.0)
+
+    obj = {}
+    for label, params in [("plain", {"min_candidates": 8}),
+                          ("pooled", {"min_candidates": 8, "pot_pool_k": 100})]:
+        ctx = run.setup(locations_tuple=(ids, coords, pots), solver="dp_carla", scorer=sc,
+                        rng_seed=1, parameters=params)
+        rdf, _, _ = run.solve(ctx=ctx, plans_df=df)
+        obj[label] = _combined_obj(rdf, 50.0, 1.0)
+    assert obj["pooled"] >= obj["plain"] - 1e-6
