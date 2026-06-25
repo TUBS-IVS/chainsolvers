@@ -12,10 +12,6 @@ not part of the library's offering. They reuse core helpers (no core->eval depen
   `_private/` (see `docs/eqasim_comparison.md`). (We feed target distances from the plans,
   matching how all solvers are fed; the stochastic feasible-distance resampling / outer
   assignment loop is handled upstream by the harness.)
-- `Nearest` — crude floor: free nodes at cumulative-distance shares on the S->E line, snapped
-  to the nearest facility (no relaxation). The "closest location" CARLA argues against.
-- `ZoneSample` — attractiveness-weighted random facility of the type, ignoring distance
-  (PAM-style facility sampling); a pure-attractiveness floor.
 - `GravityIndependent` — sequential gravity sample (size * exp(-d_prev/scale)) per node with
   no joint/backward pass; isolates the value of *chain* coupling vs per-activity placement.
 """
@@ -243,44 +239,6 @@ class RelaxationDiscretizationGuided(RelaxationDiscretization):
             if dev < best_dev:
                 best_chosen, best_dev = chosen, dev
         return _build_placed_segment(segment, best_chosen)
-
-
-class Nearest(_BaseBaseline):
-    """Crude floor: free nodes at cumulative-distance shares on the S->E line, snapped nearest."""
-
-    def _solve_segment(self, segment: Segment) -> Segment:
-        n = len(segment)
-        if n == 1:
-            self._check_single(segment)
-            return segment
-        S, E = self._endpoints(segment)
-        distances = np.array([leg.distance for leg in segment], dtype=float)
-        cs = np.cumsum(distances)
-        shares = cs[:-1] / max(float(cs[-1]), 1e-9)
-        pts = S[None, :] + shares[:, None] * (E - S)[None, :]
-        chosen = [self._snap_nearest(segment[j].to_act_type, pts[j]) for j in range(n - 1)]
-        return _build_placed_segment(segment, chosen)
-
-
-class ZoneSample(_BaseBaseline):
-    """Attractiveness-weighted random facility of the type, ignoring distance (PAM-style)."""
-
-    def _solve_segment(self, segment: Segment) -> Segment:
-        n = len(segment)
-        if n == 1:
-            self._check_single(segment)
-            return segment
-        chosen = []
-        for j in range(n - 1):
-            t = segment[j].to_act_type
-            ids = self.locations.identifiers[t]
-            coords = self.locations.coordinates[t]
-            pots = np.asarray(self.locations.potentials[t], dtype=float)
-            tot = pots.sum()
-            p = pots / tot if np.isfinite(tot) and tot > 0 else np.full(len(ids), 1.0 / len(ids))
-            i = int(self.rng.choice(len(ids), p=p))
-            chosen.append((ids[i], np.asarray(coords[i], dtype=float), float(pots[i])))
-        return _build_placed_segment(segment, chosen)
 
 
 class GravityIndependent(_BaseBaseline):

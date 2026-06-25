@@ -71,25 +71,34 @@ def plot_world(world, path: str = "out/world.png", *, n_chains: int = 8,
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
     (ax1, ax2), (ax3, ax4) = axes
 
+    # Dense worlds (10k-80k points) overlap into a solid mass; shrink markers / fade alpha as the
+    # facility count grows so structure (core, towns, clusters) stays legible.
+    n = len(loc_ids)
+    # Punchy: small but fairly opaque markers -> crisp individual dots / a sharp textured mass,
+    # rather than a faded haze (big translucent markers) or a solid blob.
+    sfac = float(np.clip(7000.0 / max(n, 1), 0.10, 1.0))
+    alpha1 = float(np.clip(13000.0 / max(n, 1), 0.35, 0.7))
+
     # --- 1. Topology, size ∝ latent attractiveness --------------------------------
-    s = 4 + 60 * (sizes / sizes.max())
+    s = (1.5 + 26 * (sizes / sizes.max())) * sfac
     ax1.scatter(coords[:, 0], coords[:, 1], s=s, c=sizes, cmap="viridis",
-                alpha=0.6, linewidths=0)
+                alpha=alpha1, linewidths=0)
     ax1.set_title(f"1. Topology — {len(loc_ids)} facilities\n(marker size ∝ latent attractiveness)")
     ax1.set_aspect("equal"); ax1.set_xlabel("x (m)"); ax1.set_ylabel("y (m)")
 
     # --- 2. Realized usage (potentials = visit counts) ----------------------------
     used = visits > 0
     sc = ax2.scatter(coords[used, 0], coords[used, 1],
-                     s=6 + 50 * visits[used] / max(visits.max(), 1),
-                     c=visits[used], cmap="inferno", alpha=0.8, linewidths=0)
+                     s=(4 + 40 * visits[used] / max(visits.max(), 1)) * max(sfac, 0.3),
+                     c=visits[used], cmap="inferno", alpha=min(alpha1 + 0.2, 0.85), linewidths=0)
     fig.colorbar(sc, ax=ax2, fraction=0.046, pad=0.04, label="visits")
     ax2.set_title(f"2. Realized usage — {int(used.sum())}/{len(loc_ids)} facilities visited\n"
                   "(potentials given to the solver = visit counts)")
     ax2.set_aspect("equal"); ax2.set_xlabel("x (m)"); ax2.set_ylabel("y (m)")
 
     # --- 3. Example chains --------------------------------------------------------
-    ax3.scatter(coords[:, 0], coords[:, 1], s=2, c="lightgrey", alpha=0.5, linewidths=0)
+    ax3.scatter(coords[:, 0], coords[:, 1], s=2 * max(sfac, 0.3), c="lightgrey",
+                alpha=float(np.clip(alpha1, 0.15, 0.5)), linewidths=0)
     rng = np.random.default_rng(seed)
     pids = plans["unique_person_id"].unique()
     pick = rng.choice(pids, size=min(n_chains, len(pids)), replace=False)
