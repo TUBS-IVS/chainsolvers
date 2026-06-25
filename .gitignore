@@ -21,6 +21,9 @@ out/
 # MiD HTS data must NEVER be committed (huge + licensed). Synthetic/generated output is disposable.
 research/data/
 research/out/
+# Large/licensed source data dropped in research/ root (e.g. the NI synthetic-population GeoPackage).
+research/*.gpkg
+*.gpkg
 
 # ── PAPER ──
 # The manuscript (LaTeX sources, PDFs, figures, build artifacts) is NOT tracked in this repo.

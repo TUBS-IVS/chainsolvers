@@ -12,7 +12,13 @@ dependencies = [
     "networkx",
     "pyproj",
     "matplotlib",
+    "pyarrow",       # parquet I/O for baked world snapshots (worlds.save_world/load_world)
 ]
+
+# Install the library editable from the repo root (src-layout) so `uv sync` tracks src/ live
+# instead of re-copying a stale wheel (which silently drops new modules, e.g. solvers/dp.py).
+[tool.uv.sources]
+chainsolvers = { path = "..", editable = true }
 
 [build-system]
 requires = ["hatchling"]
