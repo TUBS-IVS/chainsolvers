@@ -132,7 +132,14 @@ primitives used only for benchmarking/experiments.
   from observed choices over the full per-type candidate set (`transform` selects the attractiveness
   form, `log`/`log1p`, and must match the solver's). These are the stable parameters that give the
   model prognosis ability; with the matched `log` form it recovers the true (alpha≈1, scale).
-  `dp_sample` takes an `attr_transform` parameter to match.
+  `dp_sample` takes an `attr_transform` parameter to match. `fit_location_choice_mixture(...)` is the
+  two-component variant: same conditional-MNL MLE but with a heavy-tailed distance kernel
+  `(1-w)·exp(-d/scale) + w·exp(-d/tail_scale)`, returning `(alpha, scale, tail_weight, tail_scale)` for
+  `dp_sample`'s tail kernel. It's structural (fits choice likelihood, never the marginal) and does not
+  manufacture a tail — on no-tail data `tail_weight → 0`. **Gotcha:** the mixture's *body* `scale` is
+  single-anchor-specific and does NOT transfer to `dp_sample`'s both-anchor sampler (using it collapses
+  the median); pair the mixture's *tail shape* (`tail_weight`, `tail_scale/scale` ratio) with the
+  single-component `fit_location_choice` `scale`. See `research/scripts/dp_sample_distfit.py`.
 - **`research/chainsolvers_eval/baselines.py`**: comparison baselines run via `setup(solver=<class>)` (no registry
   entry needed). `RelaxationDiscretization` = faithful Hörl & Axhausen RDA (eqasim): gravity-chain
   continuous relaxation + nearest-facility discretization over an assignment loop keeping the
@@ -208,7 +215,16 @@ generation, so it is exact only over its generated candidate set):
 - `dp_rings_refine` / `dp_carla_refine` — the above + iterative neighbour refinement (monotone).
 - `dp_carla_pot` — `dp_carla_refine` + potential-aware pooling (augments each pool with the top-K
   facilities by potential, keeping the pruned DP near-exact for the **combined** α>0 objective).
-- `dp_sample` — generative MNL forward–backward sampler. `milp` — MILP oracle (== `dp_rings`).
+- `dp_sample` — generative MNL forward–backward *sampler* (samples distances instead of taking the
+  argmin), so it can reproduce an observed free-leg distance distribution. Knobs: `default_scale`/
+  `decay_scales` (body decay; feed the MLE `scale`, not the 3000 default, or the median undershoots),
+  `tail_weight`/`tail_scale_factor` (heavy-tailed body+tail kernel mixture — needed because a single
+  scale can't match both the median and the long tail; the tail is *kernel*-governed, NOT
+  candidate-limited), `global_mix_k` (random global candidates per pool — a tail-coverage safety net,
+  does NOT by itself fix the tail), `tail_radius_max_reach` (caps the tail-widened candidate ball so a
+  long kernel stays O(n·candidates), not O(N²), on big worlds). Calibrate via
+  `fit_location_choice(_mixture)`; validate with `research/scripts/dp_sample_distfit.py`.
+  `milp` — MILP oracle (== `dp_rings`).
 A solver class is instantiated with
 `locations, rng, progress, stats, scorer, selector, visualizer, **parameters` and must provide:
 

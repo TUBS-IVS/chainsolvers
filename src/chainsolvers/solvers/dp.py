@@ -244,21 +244,55 @@ def sample_chain(
     alpha: float,
     rng: np.random.Generator,
     transform: str = "log1p",
+    tail_scales: Optional[Sequence[float]] = None,
+    tail_weight: "float | Sequence[float]" = 0.0,
+    kernel: str = "exp",
+    dist_shape: Optional[Sequence[float]] = None,
 ) -> List[Choice]:
     """Draw a joint assignment from the chain MNL by exact forward-filtering /
     backward-sampling (sum-product). Energy ∝ Σ alpha·log(1+potential) (unary) +
-    Σ -dist/scale (pairwise distance decay). Unlike the argmin solvers this does not
+    Σ log K(dist) (pairwise distance decay). Unlike the argmin solvers this does not
     use observed leg distances — it *generates* distances from the decay, so the
-    population distance distribution emerges from the model (the MNL / generative view)."""
+    population distance distribution emerges from the model (the MNL / generative view).
+
+    Two distance-kernel families (``kernel``):
+
+    * ``"exp"`` (default): ``exp(-d/scale)``, optionally a two-component mixture when
+      ``tail_weight > 0``: ``(1-w)·exp(-d/scale) + w·exp(-d/tail_scale)``. A single scale cannot
+      match both body and heavy tail (raise it and the median overshoots before the tail fills);
+      a small mass ``w`` on a longer ``tail_scale`` fattens the tail while the short scale holds
+      the median. ``tail_weight`` may be scalar or per-leg.
+    * ``"powerlaw"``: ``(1 + d/scale)^(-k)`` with shape ``k = dist_shape`` (per-leg). A *polynomial*
+      (heavy) tail — far candidates survive the both-anchor detour penalty that the exponential kills
+      — with the tail thickness set by a single fitted exponent (small ``k`` = heavier), so one knob
+      adapts across worlds/modes (≈exponential body for large ``k``). Note: the both-anchor geometry
+      still caps the reachable tail; the exponent fits the *available* thickness, it can't exceed it."""
     num_free = len(pools)
     layer_coords = [S.reshape(1, 2)] + [p[1] for p in pools] + [E.reshape(1, 2)]
     layer_pots = [np.zeros(1)] + [np.asarray(p[2], dtype=float) for p in pools] + [np.zeros(1)]
 
+    n_legs = num_free + 1
+    tw = ([float(tail_weight)] * n_legs if np.isscalar(tail_weight)
+          else [float(x) for x in tail_weight])
+    tail_on = tail_scales is not None and any(x > 0.0 for x in tw)
+
+    def kern(D: np.ndarray, leg_idx: int) -> np.ndarray:
+        """Distance->weight kernel for leg ``leg_idx``."""
+        s = max(float(leg_scales[leg_idx]), 1e-6)
+        if kernel == "powerlaw":
+            k = max(float(dist_shape[leg_idx]), 1e-6)
+            return (1.0 + D / s) ** (-k)
+        base = np.exp(-D / s)
+        w = tw[leg_idx]
+        if not tail_on or w <= 0.0:
+            return base
+        ts = max(float(tail_scales[leg_idx]), 1e-6)
+        return (1.0 - w) * base + w * np.exp(-D / ts)
+
     # Forward, normalised messages over free layers 1..num_free.
     f: List[np.ndarray] = [np.array([1.0])] + [None] * num_free  # type: ignore
     for j in range(1, num_free + 1):
-        scale = max(float(leg_scales[j - 1]), 1e-6)
-        Eg = np.exp(-cdist(layer_coords[j - 1], layer_coords[j]) / scale)  # |A| x |B|
+        Eg = kern(cdist(layer_coords[j - 1], layer_coords[j]), j - 1)     # |A| x |B|
         incoming = f[j - 1] @ Eg                                          # |B|
         lp = alpha * attr_value(layer_pots[j], transform)
         node_pot = np.exp(lp - lp.max())                                  # stable, shift cancels
@@ -268,13 +302,11 @@ def sample_chain(
 
     # Backward sampling.
     sel = [0] * (num_free + 1)
-    scale = max(float(leg_scales[num_free]), 1e-6)
-    edge_E = np.exp(-cdist(layer_coords[num_free], E.reshape(1, 2))[:, 0] / scale)
+    edge_E = kern(cdist(layer_coords[num_free], E.reshape(1, 2))[:, 0], num_free)
     sel[num_free] = _sample_index(rng, f[num_free] * edge_E)
     for j in range(num_free - 1, 0, -1):
-        scale = max(float(leg_scales[j]), 1e-6)
         nxt = layer_coords[j + 1][sel[j + 1]].reshape(1, 2)
-        edge = np.exp(-cdist(layer_coords[j], nxt)[:, 0] / scale)
+        edge = kern(cdist(layer_coords[j], nxt)[:, 0], j)
         sel[j] = _sample_index(rng, f[j] * edge)
 
     chosen: List[Choice] = []
@@ -532,8 +564,36 @@ class DpSample(Dp):
     needs no observed per-leg distance — only anchors, type, and mode. This is the
     exact-chain upgrade of the greedy duration-ordered MNL decomposition.
 
-    Params: `decay_scales` (mode -> mean trip length m), `default_scale`,
-    `tail_radius_factor` (candidate ball radius = factor * scale). `alpha` (potential
+    To reproduce an observed free-leg distance distribution two things must be right
+    and they fix different parts of it:
+
+    * **Decay scale** (`decay_scales` / `default_scale`) controls the *centre* of the
+      generated distribution. The default 3000 m is deliberately conservative; feed the
+      MLE-calibrated scale (`chainsolvers_eval.calibration.fit_location_choice`, or a
+      per-mode mean) so the median stops undershooting.
+    * **Local/global candidate mixing** (`global_mix_k`) controls the *tail*. The pool is
+      a decay-scaled ball of radius `tail_radius_factor * scale` around the anchors, so
+      far facilities are never candidates and long trips are truncated. With
+      `global_mix_k > 0` each free-node pool is augmented with that many facilities drawn
+      uniformly at random from the full per-type catalog (deduped by id) — the "global"
+      arm of a local/global mixture. The MNL distance decay reweights them, so they only
+      matter where the local ball stops, restoring the long tail. 0 disables (back-compat).
+
+    To fatten the long-distance tail (which a single decay scale cannot reach without
+    overshooting the median), give a small probability mass `tail_weight` to a longer decay
+    `tail_scale_factor * scale`; the kernel becomes a body+tail mixture (see `sample_chain`).
+    The candidate ball is widened to `tail_scale_factor * scale` when the tail kernel is on,
+    so the far facilities the tail kernel now weights are actually in the pool.
+
+    Tail params may be **per-mode**: on a mode-heterogeneous world (car carries a long tail,
+    walk/bike do not) a single pooled tail overshoots, so pass `decay_scales`, `tail_weights` and
+    `tail_scale_factors` as mode->value dicts (from `chainsolvers_eval.calibration.fit_mode_kernels`);
+    the scalar `tail_weight`/`tail_scale_factor`/`default_scale` are the per-mode fallbacks.
+
+    Params: `decay_scales` (mode -> body scale m), `default_scale`, `tail_radius_factor` (candidate
+    ball radius = factor * scale), `tail_weight`/`tail_weights` (mixture mass on the long kernel;
+    0 = single-scale), `tail_scale_factor`/`tail_scale_factors` (long kernel = factor * scale),
+    `global_mix_k` (random global candidates added per pool; 0 = local-only). `alpha` (potential
     weight) comes from the injected Scorer's `pot_weight`."""
 
     def __init__(self, locations, scorer, selector=None, rng=None, visualizer=None,
@@ -541,6 +601,15 @@ class DpSample(Dp):
         self.decay_scales = dict(params.pop("decay_scales", {}) or {})
         self.default_scale = float(params.pop("default_scale", 3000.0))
         self.tail_radius_factor = float(params.pop("tail_radius_factor", 3.0))
+        self.tail_weight = float(params.pop("tail_weight", 0.0))
+        self.tail_scale_factor = float(params.pop("tail_scale_factor", 3.0))
+        self.tail_weights = dict(params.pop("tail_weights", {}) or {})
+        self.tail_scale_factors = dict(params.pop("tail_scale_factors", {}) or {})
+        self.tail_radius_max_reach = float(params.pop("tail_radius_max_reach", 2.5))
+        self.dist_kernel = str(params.pop("dist_kernel", "exp"))           # "exp" | "powerlaw"
+        self.dist_shape = float(params.pop("dist_shape", 1.0))             # powerlaw exponent k
+        self.dist_shapes = dict(params.pop("dist_shapes", {}) or {})       # per-mode k
+        self.global_mix_k = int(params.pop("global_mix_k", 0))
         self.attr_transform = str(params.pop("attr_transform", "log1p"))
         super().__init__(locations, scorer, selector, rng, visualizer, progress, stats, **params)
         self.alpha = float(getattr(scorer, "pot_weight", 1.0))
@@ -553,10 +622,58 @@ class DpSample(Dp):
     def _scale_for(self, leg) -> float:
         return self.decay_scales.get(leg.mode, self.default_scale)
 
+    def _tail_weight_for(self, leg) -> float:
+        return float(self.tail_weights.get(leg.mode, self.tail_weight))
+
+    def _tail_factor_for(self, leg) -> float:
+        return float(self.tail_scale_factors.get(leg.mode, self.tail_scale_factor))
+
+    def _dist_shape_for(self, leg) -> float:
+        return float(self.dist_shapes.get(leg.mode, self.dist_shape))
+
+    def _candidate_radius(self, leg) -> float:
+        """Candidate-ball radius. Widened when a heavy tail is on so the far facilities the long
+        kernel weights are actually generated as candidates -- but the reach is capped at
+        `tail_radius_max_reach` so a near-flat tail doesn't expand the ball to the whole catalog on
+        a large world (O(N^2)); far candidates beyond the cap are supplied cheaply by `global_mix_k`.
+        The power-law kernel is always heavy-tailed, so it always uses the (capped) widened reach."""
+        if self.dist_kernel == "powerlaw":
+            reach = self.tail_radius_max_reach
+        elif self._tail_weight_for(leg) > 0.0:
+            reach = min(self._tail_factor_for(leg), self.tail_radius_max_reach)
+        else:
+            reach = 1.0
+        return self.tail_radius_factor * self._scale_for(leg) * reach
+
+    def _augment_global(self, act_type, pool: Pool) -> Pool:
+        """Union the local pool with `global_mix_k` facilities sampled uniformly from the
+        full per-type catalog (deduped by id). No-op when `global_mix_k <= 0`. This is the
+        global arm of the local/global candidate mixture that restores the long-distance
+        tail the decay-scaled ball would otherwise prune."""
+        k = self.global_mix_k
+        if k <= 0:
+            return pool
+        ids, coords, pots = pool
+        all_ids = self.locations.identifiers[act_type]
+        n = all_ids.shape[0]
+        pick = self.rng.choice(n, size=min(k, n), replace=False)
+        g_ids = all_ids[pick]
+        existing = set(np.asarray(ids).tolist())
+        keep = [i for i, gid in enumerate(np.asarray(g_ids).tolist()) if gid not in existing]
+        if not keep:
+            return pool
+        keep = np.asarray(keep, dtype=int)
+        sel = pick[keep]
+        return (
+            np.concatenate([ids, all_ids[sel]]),
+            np.vstack([coords, np.asarray(self.locations.coordinates[act_type], dtype=float)[sel]]),
+            np.concatenate([pots, np.asarray(self.locations.potentials[act_type], dtype=float)[sel]]),
+        )
+
     def _gen_pool(self, segment, S, E, distances, fj) -> Pool:
         # Decay-scaled buffer around both anchors (no observed distance used).
         act_type = segment[fj].to_act_type
-        R = self.tail_radius_factor * self._scale_for(segment[fj])
+        R = self._candidate_radius(segment[fj])
         min_c = min(self.config.min_candidates, self.locations.identifiers[act_type].shape[0])
         (ids, coords, pots), _ = self.locations.get_overlapping_rings_candidates(
             act_type, S, E, R, 0.0, R, 0.0,
@@ -564,7 +681,8 @@ class DpSample(Dp):
         )
         if ids is None or ids.size == 0:
             raise RuntimeError(f"No candidates for free node {fj} (type {act_type!r}).")
-        return ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float)
+        pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
+        return self._augment_global(act_type, pool)
 
     def _solve_segment(self, segment: Segment) -> Segment:
         n = len(segment)
@@ -579,8 +697,15 @@ class DpSample(Dp):
         S = h.to_point_1d(segment[0].from_location)
         E = h.to_point_1d(segment[-1].to_location)
         leg_scales = [self._scale_for(leg) for leg in segment]
+        tail_scales = [self._scale_for(leg) * self._tail_factor_for(leg) for leg in segment]
+        tail_weights = [self._tail_weight_for(leg) for leg in segment]
+        dist_shapes = ([self._dist_shape_for(leg) for leg in segment]
+                       if self.dist_kernel == "powerlaw" else None)
         pools = [self._gen_pool(segment, S, E, None, fj) for fj in range(n - 1)]
-        chosen = sample_chain(S, E, leg_scales, pools, self.alpha, self.rng, transform=self.attr_transform)
+        chosen = sample_chain(S, E, leg_scales, pools, self.alpha, self.rng,
+                              transform=self.attr_transform, tail_scales=tail_scales,
+                              tail_weight=tail_weights, kernel=self.dist_kernel,
+                              dist_shape=dist_shapes)
         return _build_placed_segment(segment, chosen)
 
 
