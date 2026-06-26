@@ -51,7 +51,17 @@ from chainsolvers_eval.worlds import load_world
 WORLDS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "worlds")
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "out", "block_a")
 ORACLE = "dp_full"
-_BASELINES = frozenset({"rda", "rda_guided", "dp_sample"})  # off-scale refs (generative/RDA): in raw, off plot 1
+# off-scale refs (generative/RDA): kept in the raw CSV, omitted from the placement plot (plot 1).
+# dp_sample = untuned generative MNL (stock default_scale, single-scale, no tail); dp_sample_tuned =
+# the calibrated "fitted-tail" recipe (per-world MLE body scale + mixture tail shape, see
+# `_calibrate_dp_sample` / dp_sample_distfit). Both are generative (sample, not argmin) -> off-scale.
+_BASELINES = frozenset({"rda", "rda_guided", "dp_sample", "dp_sample_tuned"})
+
+# tuned-dp_sample calibration knobs (the validated fitted-tail config from dp_sample_distfit.py).
+DP_TUNED_TRANSFORM = "log1p"
+DP_TUNED_MIX_K = 200          # global candidates per pool (tail-coverage safety net; not the tail fix)
+DP_TUNED_CAL_PERSONS = 400    # persons for the (single + mixture) choice-likelihood MLE
+TAIL_FACTOR_CAP = 10.0        # cap the fitted long-kernel reach (a near-flat tail -> blown-up ball)
 
 
 def _vendored_rda():
@@ -102,7 +112,8 @@ CARLA_CFG = {"number_of_branches": 50, "candidates_complex_case": 10, "candidate
 SOLVERS: Dict[str, object] = {
     "carla": ("carla", CARLA_CFG), "dp_rings": "dp_rings", "dp_carla": "dp_carla",
     "dp_rings_refine": "dp_rings_refine", "dp_carla_refine": "dp_carla_refine", "dp_full": "dp_full",
-    "dp_sample": "dp_sample",
+    "dp_sample": "dp_sample",              # untuned generative reference (stock defaults)
+    "dp_sample_tuned": "dp_sample",        # same class; per-world calibrated params injected via `extra`
     "rda": RelaxationDiscretization, "rda_guided": RelaxationDiscretizationGuided,  # MIT fallback
 }
 _VENDORED = _vendored_rda()
@@ -127,6 +138,23 @@ def _spec(name):
     """Return (solver, params) for run.setup, unpacking the optional (class, params) form."""
     s = SOLVERS[name]
     return (s[0], s[1]) if isinstance(s, tuple) else (s, None)
+
+
+def _calibrate_dp_sample(world, transform=DP_TUNED_TRANSFORM, max_persons=DP_TUNED_CAL_PERSONS) -> dict:
+    """Fit the tuned dp_sample params (the validated 'fitted-tail' recipe, dp_sample_distfit.py):
+    single-component MLE body scale (recovers the generating scale) + the mixture MLE's tail SHAPE
+    (tail_weight, tail/body ratio). The mixture's *body* scale is single-anchor-specific and does
+    NOT transfer to the both-anchor sampler (it collapses the median) -- only the tail shape transfers,
+    paired with the single-component body scale. Runs in the MAIN process (needs topology+plans+gt);
+    the resulting param dict is small/picklable and shipped to the parallel workers via the task `extra`."""
+    from chainsolvers_eval.calibration import fit_location_choice, fit_location_choice_mixture
+    _, scale_hat = fit_location_choice(
+        world.topology, world.plans_df, world.ground_truth, transform=transform, max_persons=max_persons)
+    _, scale_mix, w_mix, ts_mix = fit_location_choice_mixture(
+        world.topology, world.plans_df, world.ground_truth, transform=transform, max_persons=max_persons)
+    f_mix = float(min(ts_mix / scale_mix, TAIL_FACTOR_CAP)) if scale_mix > 0 else TAIL_FACTOR_CAP
+    return {"attr_transform": transform, "default_scale": float(scale_hat),
+            "global_mix_k": DP_TUNED_MIX_K, "tail_weight": float(w_mix), "tail_scale_factor": f_mix}
 
 
 # --------------------------------------------------------------------------- #
@@ -286,9 +314,10 @@ def _init_worker(world_name):
 
 def _cell(args):
     """One (solver, regime) cell. `solver` is a NAME (worker rebuilds its own spec, incl. the
-    vendored-RDA closures) so nothing unpicklable crosses the process boundary."""
-    solver, label, plans, gt, scored, seed = args
-    rdf, rt, valid = _solve_timed(_W, plans, solver, seed)
+    vendored-RDA closures) so nothing unpicklable crosses the process boundary. `extra` carries
+    per-solver params computed in the main process (the dp_sample_tuned calibration); None otherwise."""
+    solver, label, plans, gt, scored, seed, extra = args
+    rdf, rt, valid = _solve_timed(_W, plans, solver, seed, extra)
     return solver, label, per_person_dev(rdf, plans, gt, scored), rt, valid
 
 
@@ -297,12 +326,24 @@ def result_gap_difficulty(world, n_persons, solvers, seed, out_dir, world_name=N
     assert ORACLE in solvers, f"result 1 needs {ORACLE!r} in the solver list (it is the gap baseline)"
     w = S.sample_persons(world, n_persons, seed=seed)
     rng = np.random.default_rng(seed)
+    # tuned dp_sample needs per-world calibration (main process only; topology+plans+gt). Shipped to
+    # workers via the per-task `extra`. If it fails, drop the solver rather than crash all of result 1.
+    tuned = None
+    if "dp_sample_tuned" in solvers:
+        try:
+            tuned = _calibrate_dp_sample(world)
+            print(f"  dp_sample_tuned calibrated: {tuned}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"  WARNING: dp_sample_tuned calibration failed ({e!r}); dropping it", flush=True)
+            solvers = [s for s in solvers if s != "dp_sample_tuned"]
+
     regimes = make_regimes(w.plans_df, w.ground_truth, world, rng, anchor_sigma=anchor_sigma)
     tasks, regime_data = [], {}
     for label, pl, gt in regimes:
         scored = _scored_legs(pl, gt)
         regime_data[label] = (pl, gt, scored)
-        tasks += [(s, label, pl, gt, scored, seed) for s in solvers]
+        tasks += [(s, label, pl, gt, scored, seed, tuned if s == "dp_sample_tuned" else None)
+                  for s in solvers]
 
     if jobs > 1 and world_name:
         from concurrent.futures import ProcessPoolExecutor
@@ -516,7 +557,10 @@ def _subsample_locations(locations_tuple, n_per_type, seed):
     rng = np.random.default_rng(seed)
     nids, ncoords, npots = {}, {}, {}
     for t in ids:
-        N = len(ids[t]); k = min(n_per_type, N); idx = rng.choice(N, k, replace=False)
+        # NESTED across n_per_type: same seed -> same per-type permutation, take the first k. So
+        # larger N strictly contains smaller N -> recall is monotone in density (no spurious spikes
+        # from each level drawing an independent subset). Matters for the gap-vs-N curves (A6/A8).
+        N = len(ids[t]); k = min(n_per_type, N); idx = rng.permutation(N)[:k]
         nids[t] = np.asarray(ids[t])[idx]
         ncoords[t] = np.asarray(coords[t], float)[idx]
         npots[t] = np.asarray(pots[t], float)[idx]

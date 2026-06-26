@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 WORLDS = ["gauss_hannover", "osm_hannover", "two_zone"]
 TITLE = {"gauss_hannover": "Gauss-Hannover", "osm_hannover": "OSM-Hannover", "two_zone": "Two-zone"}
 PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # dp_full = oracle (0), omitted
-BASELINES = ["rda", "rda_guided", "dp_sample"]
+BASELINES = ["rda", "dp_sample", "dp_sample_tuned"]  # generative/RDA off-scale refs; rda_guided broken -> not plotted
 REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
 B = "research/out/block_a"
@@ -18,7 +18,7 @@ B = "research/out/block_a"
 COL = {
     "carla": "#1f77b4", "dp_rings": "#ff7f0e", "dp_carla": "#2ca02c",
     "dp_rings_refine": "#d62728", "dp_carla_refine": "#9467bd", "dp_full": "#8c564b",
-    "rda": "#e377c2", "rda_guided": "#7f7f7f", "dp_sample": "#bcbd22",
+    "rda": "#e377c2", "rda_guided": "#7f7f7f", "dp_sample": "#bcbd22", "dp_sample_tuned": "#17becf",
 }
 
 

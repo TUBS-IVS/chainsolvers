@@ -1,0 +1,116 @@
+Block A canonical numbers -- regenerate with: python research/scripts/block_a_audit.py
+(reads research/out/block_a/<world>/*.csv; affected subpop reconstructed at seed 0)
+
+==============================================================================
+gauss_hannover
+==============================================================================
+
+[R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
+   true                 carla=4.30+-0.63  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=71.16+-4.57  dp_sample=7329.23+-201.13  dp_sample_tuned=7620.16+-192.42
+   dist_noise=0.15      carla=2.54+-0.39  dp_rings=0.07+-0.05  dp_carla=0.07+-0.05  dp_rings_refine=0.06+-0.05  dp_carla_refine=0.06+-0.05  rda=799.55+-108.78  dp_sample=6832.28+-190.41  dp_sample_tuned=7165.05+-187.41
+   dist_sampled         carla=3.16+-0.43  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=64.14+-6.42  dp_sample=7323.18+-201.68  dp_sample_tuned=7597.15+-194.49
+   anchor_disturb=1000m carla=4.20+-0.62  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=89.41+-12.20  dp_sample=7301.93+-200.72  dp_sample_tuned=7611.70+-191.97
+   anchor_remove        carla=4.77+-0.63  dp_rings=0.04+-0.04  dp_carla=0.04+-0.04  dp_rings_refine=0.04+-0.04  dp_carla_refine=0.04+-0.04  rda=70.68+-4.50  dp_sample=7763.32+-194.43  dp_sample_tuned=7915.70+-194.67
+
+[R1] proven optimality on `true` (% persons with gap < 0.5 m):
+   carla              93.4%  (mean gap 4.30 m)
+   dp_carla           99.9%  (mean gap 0.05 m)
+   dp_carla_refine    99.9%  (mean gap 0.05 m)
+
+[R4] generation/search decomposition (true regime, mean m above oracle):
+   carla              4.30
+   dp_rings           0.05
+   dp_carla           0.05
+   dp_rings_refine    0.05
+   dp_carla_refine    0.05
+
+[R6] recall floor (dp_carla gap vs min_candidates): flat at 0.05 m over K=[10, 25, 50, 100, 200, 400] (spread 0.000)
+
+[R3] scaling: carla n=8 -> 5958 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (2062 ms)
+
+[R5] N-wall: dp_full 250->2000 = 1->28 ms; rda flat ~39 ms
+[R2] frontier carla      runtime[0.68-4.67]s dev[57-82]m
+[R2] frontier dp_carla   runtime[2.98-4.51]s dev[53-56]m
+[R2] frontier rda        runtime[2.20-81.24]s dev[92-1270]m
+
+[R1-anchor] work-bounded affected subpop: 75 persons (8.7% of placed)
+   dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 168)
+   carla    gap-above-oracle: true=1.1 -> disturb=0.0  DEGRADATION=+-1 m   (raw dev: true 1 -> disturb 168)
+   rda      gap-above-oracle: true=44.3 -> disturb=283.7  DEGRADATION=+239 m   (raw dev: true 44 -> disturb 452)
+   -> raw per-person anchor-subpop deltas: research/block_a_audit/gauss_hannover_anchor_subpop_raw.csv
+
+==============================================================================
+osm_hannover
+==============================================================================
+
+[R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
+   true                 carla=3.46+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=92.41+-6.29  dp_sample=7270.62+-195.06  dp_sample_tuned=7452.68+-191.78
+   dist_noise=0.15      carla=6.69+-2.67  dp_rings=1.12+-0.98  dp_carla=3.48+-2.56  dp_rings_refine=0.02+-0.01  dp_carla_refine=2.38+-2.36  rda=680.69+-92.98  dp_sample=6868.16+-190.06  dp_sample_tuned=7044.53+-189.51
+   dist_sampled         carla=4.04+-0.86  dp_rings=0.35+-0.20  dp_carla=0.35+-0.20  dp_rings_refine=0.25+-0.19  dp_carla_refine=0.25+-0.19  rda=88.36+-6.91  dp_sample=7269.19+-194.00  dp_sample_tuned=7438.11+-187.86
+   anchor_disturb=1000m carla=3.50+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=139.95+-22.38  dp_sample=7255.56+-195.81  dp_sample_tuned=7410.42+-192.00
+   anchor_remove        carla=4.08+-0.56  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=115.84+-7.15  dp_sample=7578.51+-190.00  dp_sample_tuned=7505.14+-182.13
+
+[R1] proven optimality on `true` (% persons with gap < 0.5 m):
+   carla              93.9%  (mean gap 3.46 m)
+   dp_carla           100.0%  (mean gap 0.00 m)
+   dp_carla_refine    100.0%  (mean gap 0.00 m)
+
+[R4] generation/search decomposition (true regime, mean m above oracle):
+   carla              3.46
+   dp_rings           0.00
+   dp_carla           0.00
+   dp_rings_refine    0.00
+   dp_carla_refine    0.00
+
+[R6] recall floor (dp_carla gap vs min_candidates): flat at 0.00 m over K=[10, 25, 50, 100, 200, 400] (spread 0.000)
+
+[R3] scaling: carla n=8 -> 4132 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (1114 ms)
+
+[R5] N-wall: dp_full 250->2000 = 1->68 ms; rda flat ~92 ms
+[R2] frontier carla      runtime[0.97-3.25]s dev[71-112]m
+[R2] frontier dp_carla   runtime[2.45-4.06]s dev[64-76]m
+[R2] frontier rda        runtime[4.59-176.96]s dev[121-1920]m
+
+[R1-anchor] work-bounded affected subpop: 65 persons (7.5% of placed)
+   dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 300)
+   carla    gap-above-oracle: true=0.0 -> disturb=0.5  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 300)
+   rda      gap-above-oracle: true=21.5 -> disturb=576.1  DEGRADATION=+555 m   (raw dev: true 22 -> disturb 876)
+   -> raw per-person anchor-subpop deltas: research/block_a_audit/osm_hannover_anchor_subpop_raw.csv
+
+==============================================================================
+two_zone
+==============================================================================
+
+[R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
+   true                 carla=6.71+-1.82  dp_rings=2.40+-1.43  dp_carla=2.40+-1.43  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.51+-0.51  rda=134.27+-13.78  dp_sample=22943.90+-1065.75  dp_sample_tuned=23843.63+-985.18
+   dist_noise=0.15      carla=5.07+-1.53  dp_rings=2.39+-1.37  dp_carla=2.39+-1.37  dp_rings_refine=0.60+-0.52  dp_carla_refine=0.59+-0.52  rda=2027.96+-423.39  dp_sample=21701.55+-1018.30  dp_sample_tuned=22679.46+-949.62
+   dist_sampled         carla=52.27+-47.93  dp_rings=4.35+-3.68  dp_carla=30.24+-29.53  dp_rings_refine=4.24+-3.67  dp_carla_refine=30.13+-29.53  rda=207.22+-64.03  dp_sample=23498.35+-1060.72  dp_sample_tuned=24087.47+-965.07
+   anchor_disturb=1000m carla=5.69+-1.56  dp_rings=1.44+-1.06  dp_carla=1.48+-1.06  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.55+-0.51  rda=200.81+-33.44  dp_sample=22886.55+-1063.91  dp_sample_tuned=23773.23+-983.59
+   anchor_remove        carla=6.51+-1.42  dp_rings=2.25+-1.06  dp_carla=2.25+-1.06  dp_rings_refine=1.46+-0.72  dp_carla_refine=1.46+-0.72  rda=156.92+-11.89  dp_sample=25733.24+-1032.19  dp_sample_tuned=27042.59+-973.32
+
+[R1] proven optimality on `true` (% persons with gap < 0.5 m):
+   carla              96.8%  (mean gap 6.71 m)
+   dp_carla           99.6%  (mean gap 2.40 m)
+   dp_carla_refine    99.9%  (mean gap 0.51 m)
+
+[R4] generation/search decomposition (true regime, mean m above oracle):
+   carla              6.71
+   dp_rings           2.40
+   dp_carla           2.40
+   dp_rings_refine    0.51
+   dp_carla_refine    0.51
+
+[R6] recall floor (dp_carla gap vs min_candidates): flat at 2.40 m over K=[10, 25, 50, 100, 200, 400] (spread 0.000)
+
+[R3] scaling: carla n=8 -> 2170 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (66 ms)
+
+[R5] N-wall: dp_full 250->4000 = 1->123 ms; rda flat ~28 ms
+[R2] frontier carla      runtime[0.47-1.20]s dev[226-284]m
+[R2] frontier dp_carla   runtime[1.37-2.04]s dev[230-244]m
+[R2] frontier rda        runtime[1.43-56.14]s dev[311-3785]m
+
+[R1-anchor] work-bounded affected subpop: 52 persons (6.2% of placed)
+   dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 331)
+   carla    gap-above-oracle: true=15.4 -> disturb=2.2  DEGRADATION=+-13 m   (raw dev: true 15 -> disturb 333)
+   rda      gap-above-oracle: true=45.7 -> disturb=1000.2  DEGRADATION=+955 m   (raw dev: true 46 -> disturb 1331)
+   -> raw per-person anchor-subpop deltas: research/block_a_audit/two_zone_anchor_subpop_raw.csv

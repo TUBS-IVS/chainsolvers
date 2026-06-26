@@ -1,0 +1,7 @@
+{
+  "attr_transform": "log1p",
+  "default_scale": 3064.503815658237,
+  "global_mix_k": 200,
+  "tail_weight": 0.1218668257369393,
+  "tail_scale_factor": 10.0
+}
