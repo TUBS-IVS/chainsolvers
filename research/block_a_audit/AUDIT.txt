@@ -29,6 +29,11 @@ gauss_hannover
 [R3] scaling: carla n=8 -> 5294 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (1238 ms)
 
 [R5] N-wall: dp_full 250->2000 = 1->28 ms; rda flat ~37 ms
+
+[R8] density x length (gap-to-oracle [m], mean over N; runtime climb across the N sweep):
+   n= 2  carla=11.3  dp_carla=1.0  dp_carla_refine=0.0  dp_rings_refine=0.0   dp_carla rt 1->2ms (2x)  dp_full rt 5->818ms
+   n= 6  carla=49.9  dp_carla=20.5  dp_carla_refine=6.0  dp_rings_refine=6.0   dp_carla rt 12->91ms (8x)  dp_full rt 31->1653ms
+   n=10  carla=62.4  dp_carla=114.2  dp_carla_refine=7.5  dp_rings_refine=7.5   dp_carla rt 16->745ms (47x)  dp_full rt 57->2834ms
 [R2] frontier carla      runtime[0.39-2.80]s dev[57-82]m
 [R2] frontier dp_carla   runtime[1.58-2.34]s dev[53-56]m
 [R2] frontier rda        runtime[2.05-77.49]s dev[92-1270]m
@@ -67,6 +72,11 @@ osm_hannover
 [R3] scaling: carla n=8 -> 10446 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (1744 ms)
 
 [R5] N-wall: dp_full 250->2000 = 1->43 ms; rda flat ~94 ms
+
+[R8] density x length (gap-to-oracle [m], mean over N; runtime climb across the N sweep):
+   n= 2  carla=10.7  dp_carla=0.6  dp_carla_refine=0.1  dp_rings_refine=0.1   dp_carla rt 2->1ms (1x)  dp_full rt 4->148ms
+   n= 6  carla=58.5  dp_carla=10.0  dp_carla_refine=6.9  dp_rings_refine=6.9   dp_carla rt 7->335ms (46x)  dp_full rt 25->1083ms
+   n=10  carla=79.1  dp_carla=17.1  dp_carla_refine=13.2  dp_rings_refine=13.2   dp_carla rt 17->1069ms (61x)  dp_full rt 44->2069ms
 [R2] frontier carla      runtime[0.78-4.03]s dev[67-107]m
 [R2] frontier dp_carla   runtime[2.32-3.52]s dev[63-71]m
 [R2] frontier rda        runtime[5.55-183.35]s dev[117-1921]m
@@ -105,6 +115,11 @@ two_zone
 [R3] scaling: carla n=8 -> 9501 ms; carla max completed n=8, fails (no return) at n>= 10; dp_carla runs to n=14 (120 ms)
 
 [R5] N-wall: dp_full 250->4000 = 2->194 ms; rda flat ~72 ms
+
+[R8] density x length (gap-to-oracle [m], mean over N; runtime climb across the N sweep):
+   n= 2  carla=9.7  dp_carla=13.8  dp_carla_refine=0.0  dp_rings_refine=0.0   dp_carla rt 1->3ms (3x)  dp_full rt 2->938ms
+   n= 6  carla=882.1  dp_carla=1694.3  dp_carla_refine=21.2  dp_rings_refine=21.2   dp_carla rt 4->7ms (2x)  dp_full rt 21->4331ms
+   n=10  carla=811.1  dp_carla=2474.4  dp_carla_refine=66.3  dp_rings_refine=66.3   dp_carla rt 4->45ms (11x)  dp_full rt 40->8145ms
 [R2] frontier carla      runtime[0.76-3.36]s dev[226-284]m
 [R2] frontier dp_carla   runtime[2.46-3.91]s dev[230-244]m
 [R2] frontier rda        runtime[3.96-133.79]s dev[311-3785]m

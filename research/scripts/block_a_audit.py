@@ -108,6 +108,21 @@ def main():
             p(f"\n[R5] N-wall: dp_full {dpf.index.min()}->{dpf.index.max()} = {dpf.iloc[0]:.0f}->{dpf.iloc[-1]:.0f} ms; "
               f"rda flat ~{rda.mean():.0f} ms")
 
+        # density x length (A8, paper figure)
+        f8 = f"{B}/{w}/8_density_length.csv"
+        if os.path.exists(f8):
+            s8 = pd.read_csv(f8)
+            p("\n[R8] density x length (gap-to-oracle [m], mean over N; runtime climb across the N sweep):")
+            for n in sorted(s8.n_free.unique()):
+                sub = s8[s8.n_free == n]
+                gaps = {sv: sub[sub.solver == sv].gap_m.mean() for sv in
+                        ["carla", "dp_carla", "dp_carla_refine", "dp_rings_refine"] if (sub.solver == sv).any()}
+                dpc = sub[sub.solver == "dp_carla"].sort_values("N_per_type")["runtime_ms"]
+                dpf8 = sub[sub.solver == "dp_full"].sort_values("N_per_type")["runtime_ms"]
+                climb = f"dp_carla rt {dpc.iloc[0]:.0f}->{dpc.iloc[-1]:.0f}ms ({dpc.iloc[-1]/max(dpc.iloc[0],1e-9):.0f}x)" if len(dpc) else ""
+                wall = f"dp_full rt {dpf8.iloc[0]:.0f}->{dpf8.iloc[-1]:.0f}ms" if len(dpf8) else ""
+                p(f"   n={n:2d}  " + "  ".join(f"{k}={v:.1f}" for k, v in gaps.items()) + f"   {climb}  {wall}")
+
         # frontier
         f2 = f"{B}/{w}/2_frontier_raw.csv"
         if os.path.exists(f2):
