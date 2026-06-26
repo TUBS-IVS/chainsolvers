@@ -14,12 +14,9 @@ REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "a
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
 B = "research/out/block_a"
 
-# Fixed colour per solver -- consistent across EVERY figure/panel.
-COL = {
-    "carla": "#1f77b4", "dp_rings": "#ff7f0e", "dp_carla": "#2ca02c",
-    "dp_rings_refine": "#d62728", "dp_carla_refine": "#9467bd", "dp_full": "#8c564b",
-    "rda": "#e377c2", "rda_guided": "#7f7f7f", "dp_sample": "#bcbd22", "dp_sample_tuned": "#17becf",
-}
+# House style (per-solver colour+marker+linestyle, hollow faces) lives in block_a_style so Block A,
+# Block B, the robust companions, and any future figure share it. Import; do not redefine.
+from block_a_style import STYLE, COL, line as _line  # noqa: E402,F401
 
 
 def _gap(raw, s, reg):
@@ -46,7 +43,7 @@ def a1(ax, w):
     ax.axhline(0, color="0.6", lw=0.8, ls="--", zorder=0)
     for s in PLACEMENT:
         m = [_gap(raw, s, r)[0] for r in REGIMES]; e = [_gap(raw, s, r)[1] for r in REGIMES]
-        ax.errorbar(range(len(REGIMES)), m, yerr=e, marker="o", ms=4, capsize=2, label=s, color=COL[s])
+        _line(ax, range(len(REGIMES)), m, s, yerr=e)
     ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB, fontsize=8)
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person")
@@ -60,7 +57,7 @@ def a1b(ax, w):
         if not (raw.solver == s).any():
             continue
         m = [_gap(raw, s, r)[0] for r in REGIMES]
-        ax.plot(range(len(REGIMES)), m, marker="o", ms=4, label=s, color=COL[s])
+        _line(ax, range(len(REGIMES)), m, s)
     ax.set_yscale("log"); ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB, fontsize=8)
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person (log)")
@@ -73,7 +70,7 @@ def a2(ax, w):
     agg = raw.groupby(["solver", "knob", "val"], as_index=False)["dev_m"].mean().merge(meta, on=["solver", "knob", "val"])
     for s in agg["solver"].drop_duplicates():
         d = agg[agg.solver == s].sort_values("runtime_s")
-        ax.plot(d["runtime_s"], d["dev_m"], marker="o", ms=4, label=s, color=COL.get(s))
+        _line(ax, d["runtime_s"], d["dev_m"], s)
     ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel("runtime [s] (log)")
     if w == WORLDS[0]:
         ax.set_ylabel("mean deviation [m] (log)")
@@ -85,7 +82,7 @@ def a3(ax, w):
     df = pd.read_csv(f"{B}/{w}/3_scaling.csv")
     for s in df["solver"].drop_duplicates():
         d = df[df.solver == s].sort_values("n_free")
-        ax.plot(d["n_free"], d["ms_per_person"], marker="o", ms=4, label=s, color=COL.get(s))
+        _line(ax, d["n_free"], d["ms_per_person"], s)
     ax.set_yscale("log"); ax.set_xlabel("chain length (free nodes)")
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
@@ -97,7 +94,7 @@ def a5(ax, w):
     df = pd.read_csv(f"{B}/{w}/5_nwall.csv")
     for s in df["solver"].drop_duplicates():
         d = df[df.solver == s].sort_values("N_per_type")
-        ax.plot(d["N_per_type"], d["ms_per_person"], marker="o", ms=4, label=s, color=COL.get(s))
+        _line(ax, d["N_per_type"], d["ms_per_person"], s)
     ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel("facilities per type N (log)")
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
@@ -107,7 +104,7 @@ def a5(ax, w):
 
 def a6(ax, w):
     df = pd.read_csv(f"{B}/{w}/6_recall.csv").sort_values("min_candidates")
-    ax.errorbar(df["min_candidates"], df["gap_m"], yerr=df["se"], marker="o", ms=4, capsize=3, color=COL["dp_carla"])
+    _line(ax, df["min_candidates"], df["gap_m"], "dp_carla", yerr=df["se"], capsize=3)
     ax.set_xscale("log"); ax.set_xlabel("min_candidates (log)")
     if w == WORLDS[0]:
         ax.set_ylabel("dp_carla gap above oracle [m]")
@@ -119,8 +116,8 @@ def a7():
         df = pd.read_csv(f"{B}/{w}/7_density.csv")
         for s in ["carla", "dp_carla", "dp_full"]:
             d = df[df.solver == s].sort_values("N_per_type")
-            axes[0, j].plot(d.N_per_type, d.gap_m, marker="o", ms=4, label=s, color=COL[s])
-            axes[1, j].plot(d.N_per_type, d.runtime_ms, marker="o", ms=4, label=s, color=COL[s])
+            _line(axes[0, j], d.N_per_type, d.gap_m, s)
+            _line(axes[1, j], d.N_per_type, d.runtime_ms, s)
         axes[0, j].set_title(TITLE[w])
         for i in (0, 1):
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")
@@ -141,11 +138,11 @@ def a8(w):
         for s in sol_gap:
             d = sub[sub.solver == s].sort_values("N_per_type")
             if not d.empty:
-                axes[0, j].plot(d.N_per_type, d.gap_m, marker="o", ms=3, label=s, color=COL[s])
+                _line(axes[0, j], d.N_per_type, d.gap_m, s, ms=4)
         for s in sol_rt:
             d = sub[sub.solver == s].sort_values("N_per_type")
             if not d.empty:
-                axes[1, j].plot(d.N_per_type, d.runtime_ms, marker="o", ms=3, label=s, color=COL[s])
+                _line(axes[1, j], d.N_per_type, d.runtime_ms, s, ms=4)
         axes[0, j].set_title(f"chain length n={n}")
         for i in (0, 1):
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")

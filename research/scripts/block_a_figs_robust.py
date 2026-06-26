@@ -19,8 +19,7 @@ TITLE = {"gauss_hannover": "Gauss-Hannover", "osm_hannover": "OSM-Hannover", "tw
 PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]
 REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
-COL = {"carla": "#1f77b4", "dp_rings": "#ff7f0e", "dp_carla": "#2ca02c",
-       "dp_rings_refine": "#d62728", "dp_carla_refine": "#9467bd"}
+from block_a_style import COL, line  # shared house style (per-solver colour+marker+linestyle)
 B = "research/out/block_a"
 RNG = np.random.default_rng(0)
 
@@ -68,8 +67,8 @@ def main():
                 mean_excl.append(np.nanmean(g.drop(index=[pid], errors="ignore").to_numpy(float)))
                 gv = g.to_numpy(float); med.append(np.nanmedian(gv)); ci.append(boot_med_ci(gv))
             lo = [m - c[0] for m, c in zip(med, ci)]; hi = [c[1] - m for m, c in zip(med, ci)]
-            ax_m[j].errorbar(range(5), med, yerr=[lo, hi], marker="o", ms=4, capsize=2, color=COL[s], label=s)
-            ax_e[j].plot(range(5), mean_excl, marker="o", ms=4, color=COL[s], label=s)
+            line(ax_m[j], range(5), med, s, yerr=[lo, hi])
+            line(ax_e[j], range(5), mean_excl, s)
             chg = "  ".join(f"{a:6.1f}->{b:5.1f}" for a, b in zip(mean_all, mean_excl))
             print(f"   {s:16s} mean all->excl: {chg}")
         for ax in (ax_m[j], ax_e[j]):
