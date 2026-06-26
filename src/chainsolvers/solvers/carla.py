@@ -156,22 +156,42 @@ class Carla:
 
         # base: two legs
         elif n == 2:
-            sel_ids, sel_coords, sel_pots, sel_scores = self.locations.get_best_circle_intersection_locations(
-                selector=self.selector,
-                scorer=self.scorer,
-                act_type=segment[0].to_act_type,
-                start_coord=segment[0].from_location,
-                end_coord=segment[1].to_location,
-                dist_start_to_act=segment[0].distance,
-                dist_act_to_end=segment[1].distance,
-                min_candidates=self.config.candidates_two_leg_case,
-                sel_candidates=1,
-                selection_strategy=self.config.selection_strategy_two_leg_case,
-                rng=self.rng
-            )
+            try:
+                sel_ids, sel_coords, sel_pots, sel_scores = self.locations.get_best_circle_intersection_locations(
+                    selector=self.selector,
+                    scorer=self.scorer,
+                    act_type=segment[0].to_act_type,
+                    start_coord=segment[0].from_location,
+                    end_coord=segment[1].to_location,
+                    dist_start_to_act=segment[0].distance,
+                    dist_act_to_end=segment[1].distance,
+                    min_candidates=self.config.candidates_two_leg_case,
+                    sel_candidates=1,
+                    selection_strategy=self.config.selection_strategy_two_leg_case,
+                    rng=self.rng
+                )
+            except RuntimeError:
+                # circles do not intersect (degenerate lopsided 2-leg: close anchors, far stop) ->
+                # fall back to overlapping-ring (annulus) generation over BOTH anchors, the same
+                # robust pool dp_carla uses. The circle-intersection projection would otherwise place
+                # a catastrophically off candidate (see locations.get_circle_intersection_candidates).
+                sel_ids, sel_coords, sel_pots, sel_scores = self.locations.get_best_overlap_candidates(
+                    act_type=segment[0].to_act_type,
+                    start_coord=segment[0].from_location,
+                    end_coord=segment[1].to_location,
+                    distances_start_to_act=np.array([segment[0].distance], dtype=float),
+                    distances_act_to_end=np.array([segment[1].distance], dtype=float),
+                    min_candidates=self.config.candidates_two_leg_case,
+                    sel_candidates=1,
+                    selection_strategy=self.config.selection_strategy_two_leg_case,
+                    max_iterations=self.config.max_iterations_complex_case,
+                    scorer=self.scorer,
+                    selector=self.selector,
+                    rng=self.rng,
+                )
 
             if sel_ids.size == 0:
-                raise RuntimeError("No feasible circle-intersection candidate for 2-leg case.")
+                raise RuntimeError("No feasible candidate for 2-leg case (circle-intersection and ring fallback both empty).")
 
             # take the first (contract keeps shape (1,) for sel_candidates=1)
             best_id = sel_ids.item()

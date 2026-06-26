@@ -140,6 +140,35 @@ def _chain_slack(distances: np.ndarray, direct: float) -> float:
     return max(delta, direct - tot, 0.0)
 
 
+def _node_facility_dev(locations, S, E, act_type: str, d1: float, d2: float) -> float:
+    """Min distance-deviation achievable by an ACTUAL facility of `act_type` realizing legs (d1, d2)
+    from anchors S, E. The triangle-inequality (`_chain_slack`) only guarantees a geometric *point*
+    at (d1, d2) exists; it does NOT guarantee a facility is near it. A lopsided draw (e.g. a 78 km
+    leg into a sparse ring) can be triangle-feasible yet leave the nearest facility tens of km off --
+    inflating even the oracle's deviation for reasons that aren't the solver. We query the facility
+    nearest the circle-intersection (or its projection when the circles miss) and return how far it
+    is from realizing (d1, d2). Returns +inf if the type has no facilities."""
+    from chainsolvers import helpers as h
+    S = np.asarray(S, float); E = np.asarray(E, float)
+    if float(np.hypot(S[0] - E[0], S[1] - E[1])) < 1.0:
+        # loop segment (S == E, e.g. home->X->home): the ideal point lies on the circle of radius
+        # ~d1 around S; sample it and take the nearest facility to any sampled point.
+        ang = np.linspace(0.0, 2.0 * np.pi, 8, endpoint=False)
+        pts = S + float(d1) * np.column_stack([np.cos(ang), np.sin(ang)])
+    else:
+        p1, p2 = h.get_circle_intersections(S, float(d1), E, float(d2))
+        pts = np.asarray([p for p in (p1, p2) if p is not None], float)
+        if pts.size == 0:
+            return float("inf")
+    _, coords, _ = locations.query_closest(act_type, np.asarray(pts, float), k=1)
+    coords = np.asarray(coords, float).reshape(-1, 2)
+    if coords.size == 0:
+        return float("inf")
+    dev = (np.abs(np.hypot(coords[:, 0] - S[0], coords[:, 1] - S[1]) - d1)
+           + np.abs(np.hypot(coords[:, 0] - E[0], coords[:, 1] - E[1]) - d2))
+    return float(dev.min())
+
+
 def _anchor_segments(plans_df):
     """Yield (row-labels, direct_distance) per anchor-bounded segment (a run from a known `from`
     to the next known `to`) that contains >= 1 leg. Relies on travel-order rows."""
@@ -157,7 +186,8 @@ def _anchor_segments(plans_df):
 
 
 def resample_distances(plans_df, gt, samples_by_mode, rng: np.random.Generator,
-                       *, feasible: bool = False, max_tries: int = 200) -> pd.DataFrame:
+                       *, feasible: bool = False, max_tries: int = 200,
+                       locations=None, facility_dev_tol: float = 3000.0) -> pd.DataFrame:
     """Return a copy of `plans_df` with each FREE leg's `distance_meters` replaced by a draw
     from the survey distribution for its mode (pooled fallback). Anchor-leg distances (e.g.
     home->work commutes) are left untouched. This is the status-quo input for argmin solvers
@@ -170,6 +200,14 @@ def resample_distances(plans_df, gt, samples_by_mode, rng: np.random.Generator,
     geometrically infeasible targets, inflating its deviation for reasons that aren't the method.
     If no feasible draw is found in `max_tries`, the lowest-slack draw is kept (and the chain is
     left near-feasible, matching eqasim's "best so far" behaviour).
+
+    With ``locations`` (a ``LocationsIndex``) also supplied, single-free-node (two-leg) segments add a
+    FACILITY-availability gate on top of the triangle test: a draw is accepted only if an actual
+    facility of the free node's type can realise it to within ``facility_dev_tol`` metres (see
+    ``_node_facility_dev``). Triangle-feasibility alone admits geometrically-possible-but-unplaceable
+    draws (a long leg into a region with no facility of that type), where even the full-catalog oracle
+    is tens of km off; the facility gate rejects those, keeping the resampled regime a fair test of
+    placement rather than of the draw. The lowest-(slack+facility-excess) draw is kept as fallback.
 
     Note: keeps each resident's own chain skeleton and ground-truth facilities, swapping only the
     per-leg distance marginals. The fully realistic regime is `transplant_survey_chains`."""
@@ -194,17 +232,32 @@ def resample_distances(plans_df, gt, samples_by_mode, rng: np.random.Generator,
             free_here = [i for i in seg if out.at[i, "unique_leg_id"] in free_ids]
             if not free_here:
                 continue
+            # facility gate only for single-free-node (two-leg) segments bounded by two anchors
+            fac = (locations is not None and len(seg) == 2 and len(free_here) == 1)
+            if fac:
+                r0, r1 = seg[0], seg[1]
+                S = np.array([out.at[r0, "from_x"], out.at[r0, "from_y"]], float)
+                E = np.array([out.at[r1, "to_x"], out.at[r1, "to_y"]], float)
+                act = out.at[r0, "to_act_type"]
+                fac = np.all(np.isfinite(S)) and np.all(np.isfinite(E)) and act in locations.identifiers
             best = None
             for _ in range(max_tries):
                 for i in free_here:
                     out.at[i, "distance_meters"] = _draw(i)
                 d = out.loc[seg, "distance_meters"].to_numpy(float)
                 slack = _chain_slack(d, direct)
-                if best is None or slack < best[0]:
-                    best = (slack, d.copy())
-                if slack <= 1e-6:
+                excess = 0.0
+                if fac and slack <= 1e-6:  # geometry ok -> also require a facility can realise it
+                    fdev = _node_facility_dev(locations, S, E, act,
+                                              float(out.at[seg[0], "distance_meters"]),
+                                              float(out.at[seg[1], "distance_meters"]))
+                    excess = max(0.0, fdev - facility_dev_tol)
+                infeas = slack + excess
+                if best is None or infeas < best[0]:
+                    best = (infeas, d.copy())
+                if infeas <= 1e-6:
                     break
-            out.loc[seg, "distance_meters"] = best[1]  # feasible draw, or lowest-slack fallback
+            out.loc[seg, "distance_meters"] = best[1]  # feasible+placeable draw, or least-bad fallback
     return out
 
 

@@ -401,13 +401,20 @@ class Locations:
 
         If `unsafe=True`, this assumes float64 for input points
         """
+        # only_return_valid=True: when the two circles do NOT truly intersect (too far apart, or one
+        # inside the other -- |d1-d2| > |SE| or d1+d2 < |SE|), return (None, None) rather than a
+        # degenerate projected point. That projection lands wherever the line through the anchors
+        # crosses, and its nearest facility can be catastrophically far from realizing (d1, d2)
+        # (e.g. a lopsided chain: close anchors, far stop). Raising here lets callers fall back to the
+        # robust overlapping-ring (annulus) generation instead of querying that bad point.
         p1, p2 = h.get_circle_intersections(
             start_coord, distance_start_to_act, end_coord, distance_act_to_end,
+            only_return_valid=True,
         )
 
-        # no intersections
+        # no valid intersection -> caller must fall back to rings
         if p1 is None and p2 is None:
-            raise RuntimeError("No circle intersections or fallbacks produced.")
+            raise RuntimeError("Circles do not intersect; fall back to ring/annulus generation.")
 
         # single intersection → direct call; returns (k,), (k,2), (k,)
         if p2 is None or p1 is None:

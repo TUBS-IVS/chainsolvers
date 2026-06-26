@@ -43,6 +43,7 @@ import numpy as np
 import pandas as pd
 
 from chainsolvers import run
+from chainsolvers.locations import Locations
 from chainsolvers_eval import survey as S
 from chainsolvers_eval.baselines import RelaxationDiscretization, RelaxationDiscretizationGuided
 from chainsolvers_eval.external import CallableSolver
@@ -264,6 +265,7 @@ def gaps_over_oracle(world, plans, gt, solvers: List[str], seed: int) -> Dict[st
 def make_regimes(plans, gt, world, rng, *, dist_noise=0.15, anchor_sigma=500.0) -> List[Tuple[str, pd.DataFrame, pd.DataFrame]]:
     """(label, plans, gt) per regime. Anchor axis uses TRUE distances (OFAT)."""
     samples = S.per_mode_distance_samples(world.plans_df, world.ground_truth)
+    loc_index = Locations(*world.locations_tuple)  # facility-aware feasibility for dist_sampled
 
     def add_noise(pl):
         free = set(gt.loc[gt["to_is_free"], "unique_leg_id"])
@@ -278,7 +280,7 @@ def make_regimes(plans, gt, world, rng, *, dist_noise=0.15, anchor_sigma=500.0) 
     return [
         ("true", plans, gt),
         (f"dist_noise={dist_noise}", add_noise(plans), gt),
-        ("dist_sampled", S.resample_distances(plans, gt, samples, rng, feasible=True), gt),
+        ("dist_sampled", S.resample_distances(plans, gt, samples, rng, feasible=True, locations=loc_index), gt),
         (f"anchor_disturb={anchor_sigma:.0f}m", S.disturb_anchor(plans, anchor="work", noise_m=anchor_sigma, rng=rng), gt),
         ("anchor_remove", dem_pl, dem_gt),
     ]
@@ -409,7 +411,8 @@ def result_frontier(world, n_persons, seed, out_dir) -> pd.DataFrame:
     samples = S.per_mode_distance_samples(world.plans_df, world.ground_truth)
     # feasible=True mirrors result-1's dist_sampled regime: infeasible draws collapse CARLA's
     # candidate pool below num_mc and crash the monte_carlo selector (and unfairly handicap argmin).
-    pl = S.resample_distances(w.plans_df, w.ground_truth, samples, rng, feasible=True); gt = w.ground_truth
+    pl = S.resample_distances(w.plans_df, w.ground_truth, samples, rng, feasible=True,
+                              locations=Locations(*world.locations_tuple)); gt = w.ground_truth
     scored = _scored_legs(pl, gt)
     rows, raw = [], {}
     for s, (knob, vals) in _KNOBS.items():
