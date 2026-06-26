@@ -401,20 +401,36 @@ class Locations:
 
         If `unsafe=True`, this assumes float64 for input points
         """
-        # only_return_valid=True: when the two circles do NOT truly intersect (too far apart, or one
-        # inside the other -- |d1-d2| > |SE| or d1+d2 < |SE|), return (None, None) rather than a
-        # degenerate projected point. That projection lands wherever the line through the anchors
-        # crosses, and its nearest facility can be catastrophically far from realizing (d1, d2)
-        # (e.g. a lopsided chain: close anchors, far stop). Raising here lets callers fall back to the
-        # robust overlapping-ring (annulus) generation instead of querying that bad point.
+        # only_return_valid=True so we can DETECT non-intersection (too far apart, or one circle
+        # inside the other -- |d1-d2| > |SE| or d1+d2 < |SE|) rather than silently getting a
+        # degenerate projected point.
         p1, p2 = h.get_circle_intersections(
             start_coord, distance_start_to_act, end_coord, distance_act_to_end,
             only_return_valid=True,
         )
 
-        # no valid intersection -> caller must fall back to rings
+        # DEGENERATE: the circles do not truly intersect. The single projected point is an unreliable
+        # candidate source -- sometimes it sits right on the optimal facility, sometimes (a lopsided
+        # chain: close anchors, far stop) its nearest facility is catastrophically far from realizing
+        # (d1, d2). So UNION the facilities nearest the projection with overlapping-ring (annulus)
+        # candidates over both anchors and let the scorer pick. This is MONOTONE -- never worse than
+        # either source alone -- so it fixes the lopsided blow-up without regressing the cases where
+        # the projection happens to land on the optimum.
         if p1 is None and p2 is None:
-            raise RuntimeError("Circles do not intersect; fall back to ring/annulus generation.")
+            pf, _ = h.get_circle_intersections(start_coord, distance_start_to_act,
+                                               end_coord, distance_act_to_end)  # projected point
+            ip, cp, pp = self.query_closest(act_type, pf, num_candidates)
+            ids, coords, pots = np.atleast_1d(ip), np.atleast_2d(cp), np.atleast_1d(pp)
+            try:
+                (ir, cr, pr), _ = self.get_overlapping_rings_candidates(
+                    act_type, start_coord, end_coord,
+                    distance_start_to_act, distance_start_to_act,
+                    distance_act_to_end, distance_act_to_end,
+                    min_candidates=num_candidates, unsafe=unsafe)
+                ids = np.concatenate([ids, ir]); coords = np.vstack([coords, cr]); pots = np.concatenate([pots, pr])
+            except RuntimeError:
+                pass  # rings found nothing; keep the projection candidates alone
+            return ids, coords, pots
 
         # single intersection → direct call; returns (k,), (k,2), (k,)
         if p2 is None or p1 is None:
