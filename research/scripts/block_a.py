@@ -660,7 +660,13 @@ def _plot_recall(df, path):
 # --------------------------------------------------------------------------- #
 
 def result_density(world, n_persons, seed, out_dir, levels=(250, 500, 1000, 2000, 4000)) -> pd.DataFrame:
-    """At each facilities-per-type N, the gap-to-oracle AND runtime for carla vs dp_carla vs the full
+    """**DEPRECATED (kept for provenance, not run by default, not plotted, not in the paper).**
+    Superseded by `result_density_length` (result 8 / figure A8), which generalizes this exact
+    measurement (gap-to-oracle AND runtime vs facilities-per-type N) across explicit chain lengths
+    {2,6,10} and the full solver family -- so A8's natural-length case is just a weighted mix of this.
+    Do not add back to the default --results or to block_a_figs; A8 is the paper density figure.
+
+    At each facilities-per-type N, the gap-to-oracle AND runtime for carla vs dp_carla vs the full
     oracle (oracle recomputed per N -> gap is vs the N-specific global optimum). dp_full's runtime
     walls up O(N^2) while carla's stays flat; if carla's GAP climbs with N (a fixed beam saturating
     among more candidates) the better time/deviation tradeoff shifts to the heuristic in dense
@@ -788,7 +794,9 @@ def main(argv=None):
     p.add_argument("--persons", type=int, default=1000)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", default=OUT_DIR)
-    p.add_argument("--results", nargs="+", default=["1", "2", "3", "4", "5", "6", "7"])
+    # 7 (density-trade) is DEPRECATED -- superseded by 8 (density x length); not in default. 8 is the
+    # paper density figure (opt-in, heavy). See result_density's docstring.
+    p.add_argument("--results", nargs="+", default=["1", "2", "3", "4", "5", "6"])
     p.add_argument("--jobs", type=int, default=1, help="parallel workers for result 1 (persons/cells)")
     p.add_argument("--anchor-sigma", type=float, default=1000.0, help="work-anchor jitter sigma (m) for the anchor-disturb regime")
     p.add_argument("--quick", action="store_true", help="tiny run (40 persons, subset of solvers)")
@@ -827,7 +835,9 @@ def main(argv=None):
         t0 = time.perf_counter(); df = result_recall(world, persons, args.seed, args.out)
         print(f"[6] recall vs min_candidates  ({time.perf_counter()-t0:.1f}s)\n",
               df.round(2).to_string(index=False), flush=True)
-    if "7" in args.results:
+    if "7" in args.results:  # DEPRECATED (superseded by result 8); only runs if explicitly requested
+        print("[7] DEPRECATED: density-trade is superseded by result 8 (density x length); "
+              "running only because explicitly requested.", flush=True)
         t0 = time.perf_counter(); df = result_density(world, persons, args.seed, args.out)
         print(f"[7] density trade (gap+runtime vs N)  ({time.perf_counter()-t0:.1f}s)\n",
               df.round(2).to_string(index=False), flush=True)

@@ -110,7 +110,7 @@ def a6(ax, w):
         ax.set_ylabel("dp_carla gap above oracle [m]")
 
 
-def a7():
+def a7():  # DEPRECATED: A7 (density-trade) is superseded by A8 (density x length); not called/plotted.
     fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharex=True)
     for j, w in enumerate(WORLDS):
         df = pd.read_csv(f"{B}/{w}/7_density.csv")
@@ -180,7 +180,7 @@ panel(a1b, "A1b_baselines.pdf")
 panel(a2, "A2_frontier.pdf")
 panel(a3, "A3_scaling.pdf")
 a4()
-a7()
+# a7() is DEPRECATED -- A7 density-trade superseded by A8 (density x length). Not generated.
 for _w in WORLDS:
     a8(_w)
 panel(a5, "A5_nwall.pdf")
