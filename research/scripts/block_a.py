@@ -673,7 +673,7 @@ def result_density(world, n_persons, seed, out_dir, levels=(250, 500, 1000, 2000
         set(gt.loc[gt["to_is_free"], "unique_leg_id"])), "to_act_type"])
     max_sec = max((len(world.locations_tuple[0][t]) for t in free_types if t in world.locations_tuple[0]), default=10**9)
     levels = tuple(N for N in levels if N <= max_sec) or (min(max_sec, max(levels)),)
-    rows = []
+    rows, raw = [], []  # raw: per-(N, solver, person) dev so any solver's gap is recomputable later
     for N in levels:
         loc = _subsample_locations(world.locations_tuple, N, seed)
 
@@ -683,18 +683,24 @@ def result_density(world, n_persons, seed, out_dir, levels=(250, 500, 1000, 2000
             t0 = time.perf_counter(); rdf, _, _ = run.solve(ctx=ctx, plans_df=pl)
             return rdf, time.perf_counter() - t0
 
+        def _stash(N, s, dev):
+            raw.append(pd.DataFrame({"N_per_type": N, "solver": s,
+                                     "unique_person_id": dev.index, "dev_m": dev.to_numpy(float)}))
+
         orc_rdf, orc_rt = solve(ORACLE)
-        orc = per_person_dev(orc_rdf, pl, gt, scored)
+        orc = per_person_dev(orc_rdf, pl, gt, scored); _stash(N, ORACLE, orc)
         rows.append({"N_per_type": N, "solver": ORACLE, "gap_m": 0.0, "se": 0.0, "runtime_ms": 1000 * orc_rt / npers})
         for s in ["carla", "dp_carla"]:
             rdf, rt = solve(s)
-            g = (per_person_dev(rdf, pl, gt, scored) - orc).reindex(orc.index).to_numpy(float)
+            dev = per_person_dev(rdf, pl, gt, scored); _stash(N, s, dev)
+            g = (dev - orc).reindex(orc.index).to_numpy(float)
             ok = ~np.isnan(g)
             rows.append({"N_per_type": N, "solver": s, "gap_m": float(np.nanmean(g)),
                          "se": float(np.nanstd(g[ok], ddof=1) / np.sqrt(ok.sum())) if ok.sum() > 1 else float("nan"),
                          "runtime_ms": 1000 * rt / npers})
     df = pd.DataFrame(rows)
     df.to_csv(os.path.join(out_dir, "7_density.csv"), index=False)
+    pd.concat(raw, ignore_index=True).to_csv(os.path.join(out_dir, "7_density_raw.csv"), index=False)
     return df
 
 
@@ -731,15 +737,20 @@ def _dl_cell(args):
     orc_rdf, orc_rt = solve(ORACLE)
     orc = per_person_dev(orc_rdf, pl, gt, scored)
     rows = [{"n_free": n, "N_per_type": N, "solver": ORACLE, "runtime_ms": 1000 * orc_rt / npers, "gap_m": 0.0}]
+    raw = [{"n_free": n, "N_per_type": N, "solver": ORACLE, "unique_person_id": p, "dev_m": float(v)}
+           for p, v in orc.items()]  # per-person dev so any solver's gap is recomputable later
     for s in solvers:
         if s == ORACLE:
             continue
         rdf, rt = solve(s)
-        g = (per_person_dev(rdf, pl, gt, scored) - orc).reindex(orc.index).to_numpy(float)
+        dev = per_person_dev(rdf, pl, gt, scored)
+        raw += [{"n_free": n, "N_per_type": N, "solver": s, "unique_person_id": p, "dev_m": float(v)}
+                for p, v in dev.items()]
+        g = (dev - orc).reindex(orc.index).to_numpy(float)
         ok = ~np.isnan(g)
         rows.append({"n_free": n, "N_per_type": N, "solver": s, "runtime_ms": 1000 * rt / npers,
                      "gap_m": float(np.nanmean(g)) if ok.any() else float("nan")})
-    return rows
+    return rows, raw
 
 
 def result_density_length(world, n_persons, seed, out_dir, lengths=(2, 6, 10),
@@ -762,8 +773,10 @@ def result_density_length(world, n_persons, seed, out_dir, lengths=(2, 6, 10),
     else:
         globals()["_DL_W"] = world
         results = [_dl_cell(c) for c in cells]
-    df = pd.DataFrame([r for cell in results for r in cell])
+    df = pd.DataFrame([r for agg, _raw in results for r in agg])
     df.to_csv(os.path.join(out_dir, "8_density_length.csv"), index=False)
+    pd.DataFrame([r for _agg, raw in results for r in raw]).to_csv(
+        os.path.join(out_dir, "8_density_length_raw.csv"), index=False)  # per-person dev, gap recomputable
     return df
 
 

@@ -29,7 +29,10 @@ ba = importlib.util.module_from_spec(spec); spec.loader.exec_module(ba)
 from chainsolvers_eval import survey as S  # noqa: E402
 
 SEED, SIGMA = 0, 1000.0
-CARLA_FAM = ["carla", "dp_carla", "dp_carla_refine"]
+# the circle-intersection USERS (the only solvers the fix can change): carla recurses to 2-leg base
+# cases; dp_carla uses circle for whole 2-leg segments; BOTH refine variants use it in _gen_pool_local
+# (neighbour re-bracketing). dp_rings/dp_full/dp_sample/rda never touch circle-intersection.
+CARLA_FAM = ["carla", "dp_carla", "dp_carla_refine", "dp_rings_refine"]
 ALL_ORDER = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine",
              "dp_full", "dp_sample", "dp_sample_tuned", "rda"]
 SELFCHECK = [("dp_rings", "true"), ("dp_full", "dist_noise=0.15")]  # unaffected -> must match CSV
