@@ -52,10 +52,22 @@ class Scorer:
         *,
         pot_weight: float = 1.0,
         dist_dev_weight: float = 1.0,
+        attr_transform: str = "linear",
     ):
         self.mode = ScoreMode(mode)
         self.pot_weight = float(pot_weight)
         self.dist_dev_weight = float(dist_dev_weight)
+        # attractiveness form applied to potentials in POTENTIAL/COMBINED modes: "linear" (raw P,
+        # the historical default), "log1p" (= log(1+P), the calibrated-MNL form), or "log".
+        self.attr_transform = str(attr_transform)
+
+    def _attr(self, potentials: np.ndarray) -> np.ndarray:
+        p = np.asarray(potentials, dtype=float)
+        if self.attr_transform in ("linear", "none"):
+            return p
+        if self.attr_transform == "log":
+            return np.log(np.maximum(p, 1e-9))
+        return np.log1p(p)
 
     def score(
         self,
@@ -72,13 +84,13 @@ class Scorer:
         if self.mode is ScoreMode.POTENTIAL:
             if potentials is None:
                 raise ValueError("Potential scoring requires potentials.")
-            return self.pot_weight * np.asarray(potentials, dtype=float)
+            return self.pot_weight * self._attr(potentials)
 
         # ScoreMode.COMBINED
         if potentials is None or dist_deviations is None:
             raise ValueError("Combined scoring requires both potentials and dist_deviations.")
         return (
-            self.pot_weight * np.asarray(potentials, dtype=float)
+            self.pot_weight * self._attr(potentials)
             - self.dist_dev_weight * np.asarray(dist_deviations, dtype=float)
         )
 
@@ -168,6 +180,7 @@ class Selector:
         top_portion: float = 0.5,
         num_cells_x: int | None = None,
         num_cells_y: int | None = None,
+        temperature: float = 1.0,
         rng: np.random.Generator | None = None,
     ) -> np.ndarray:
         """
@@ -214,6 +227,28 @@ class Selector:
                     idx = top_idx[:num_candidates]
             else:
                 idx = top_idx[:num_candidates]
+
+        elif strategy == "mnl":
+            # Proper MNL / softmax draw: p ∝ exp(score / temperature). Scores are
+            # utilities (higher = better), so this is the canonical discrete-choice
+            # probability. Unlike "monte_carlo" (which samples from an affine min-max
+            # rescale of the scores), this follows the choice model itself -- use it
+            # when the sampled distribution must match the model, not just be "weighted".
+            # NOTE: with CARLA's deviation-based scores this is a *soft-argmin* (samples
+            # around the observed distance), so it stays input-conditioned; it does not
+            # by itself reproduce a calibrated free-leg distance distribution.
+            s = np.asarray(scores, dtype=float).copy()
+            finite = np.isfinite(s)
+            if not finite.any():
+                p = np.full(s.size, 1.0 / s.size)
+            else:
+                s[~finite] = -np.inf
+                s = s - s[finite].max()                 # stability; shift cancels in softmax
+                w = np.exp(s / max(float(temperature), 1e-12))
+                w[~np.isfinite(w)] = 0.0
+                tot = w.sum()
+                p = w / tot if (np.isfinite(tot) and tot > 0.0) else np.full(s.size, 1.0 / s.size)
+            idx = rng.choice(scores.size, size=num_candidates, p=p, replace=False)
 
         elif strategy == "spatial_downsample":
             assert coords is not None, "coords required for spatial_downsample"

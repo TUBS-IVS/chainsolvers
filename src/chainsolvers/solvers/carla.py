@@ -255,3 +255,42 @@ class Carla:
 
         else:
             raise ValueError("Invalid segment length.")
+
+
+class CarlaSample(Carla):
+    """CARLA run as a *greedy-ancestral* MNL sampler (ablation, not a new algorithm).
+
+    This is the **same** :class:`Carla` solver, only pre-wired to sample instead of
+    argmax: the candidate selector draws one anchor ``p_i ∝ exp(score_i)`` (the ``"mnl"``
+    strategy, a proper softmax over the scorer's utilities — unlike ``"monte_carlo"``,
+    which samples from an affine min-max rescale), and ``number_of_branches=1`` so the
+    branch fan-out collapses to that single draw and the ``argmax`` keep becomes a no-op.
+    The decision thus happens *at selection*, making the solver stochastic. Override any
+    of the three defaults via ``parameters=...`` as usual.
+
+    What this is for and its limits (established the hard way):
+
+    * It samples the anchor from its **local** conditional, commits, then recurses — i.e.
+      ancestral sampling on the divide-and-conquer tree. It does **not** sample the chain's
+      true joint: the correct anchor marginal must integrate over all downstream placements
+      (``p(anchor) ∝ exp(score_anchor)·Z_left·Z_right``), which requires forward-backward
+      sum-product. Exact joint sampling over the chain is :class:`~chainsolvers.solvers.dp.DpSample`
+      (``"dp_sample"``); this class is the *ablation* showing local D&C sampling undersamples
+      the joint. Making it exact would mean reimplementing the DP — at which point it stops
+      being CARLA.
+    * Sampling sharpness is fixed (temperature ≡ 1): there is intentionally **no** swept
+      temperature knob, so the sampler has no degree of freedom ``dp_sample`` lacks — keeping
+      a distribution-fit comparison fair (a tunable temperature would let it "fit" the target).
+      Tune sharpness, if needed, via the ``Scorer`` weights (``pot_weight``/``dist_dev_weight``).
+    * **Clean only for short segments.** For n>=3, the selector samples on ``temp_scores``
+      (an abstract band-deviation *heuristic*; the real leg-distance deviation is deferred to
+      the leaves to avoid double-counting), so internal anchors are drawn from the heuristic
+      law, not ``exp(combined score)``. Single-intermediate / 2-leg segments sample on the
+      actual combined score and are clean.
+    """
+
+    def __init__(self, *args: Any, **params: Any):
+        params.setdefault("selection_strategy_two_leg_case", "mnl")
+        params.setdefault("selection_strategy_complex_case", "mnl")
+        params.setdefault("number_of_branches", 1)
+        super().__init__(*args, **params)

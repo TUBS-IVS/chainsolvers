@@ -17,7 +17,7 @@ from frozendict import frozendict
 
 from .locations import Locations
 from .scoring_selection import Scorer, Selector
-from .solvers.carla import Carla
+from .solvers.carla import Carla, CarlaSample
 from .solvers.carla_plus import CarlaPlus
 from .solvers.dp import Dp, CarlaDp, DpRefine, CarlaDpRefine, DpPotential, DpFull, DpSample, Milp
 from .types import PlanColumns, SegmentedPlans, Households
@@ -36,6 +36,7 @@ class RunnerContext:
 
 SOLVER_REGISTRY: dict[str, Type[Any]] = {
     "carla": Carla,
+    "carla_sample": CarlaSample,     # same Carla, pre-wired to sample (mnl + 1 branch); greedy-ancestral ablation vs dp_sample
     "carla_plus": CarlaPlus,
     "dp_full": DpFull,               # the pure DP: exact over the full per-type catalog (global-optimum oracle)
     "dp_rings": Dp,                  # pruned DP over ring-envelope candidates
