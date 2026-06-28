@@ -113,6 +113,22 @@ def main(region: str = "urban"):
         print(f"    ({ch!r}, {tmpl_w[ch] / tot:.4f}),")
     print("]")
 
+    # --- coverage-vs-cutoff table -> tables/mid_chains.tex ------------------------------
+    # RESPONDENT-based (we SELECT by distinct diaries, not by weight): rank chains by respondent
+    # count; cover/stops/>=2/>=3 are all over diaries. min resp = fewest diaries in the cutoff.
+    by_resp = sorted(tmpl_w, key=lambda c: tmpl_n[c], reverse=True)
+    tot_resp = sum(tmpl_n.values())
+    print("\n% mid_chains.tex rows (respondent-based: topN cover stops >=2 >=3 maxlegs minresp):")
+    for c in [30, 200, 500, 1000, len(by_resp)]:
+        top = by_resp[:c]; nr = sum(tmpl_n[ch] for ch in top)
+        cov = nr / tot_resp * 100
+        ms = sum(stops(ch) * tmpl_n[ch] for ch in top) / nr
+        ge2 = sum(tmpl_n[ch] for ch in top if stops(ch) >= 2) / nr * 100
+        ge3 = sum(tmpl_n[ch] for ch in top if stops(ch) >= 3) / nr * 100
+        ml = max(len(ch) - 1 for ch in top); mr = min(tmpl_n[ch] for ch in top)
+        cc = f"{c:,}".replace(",", "\\,")
+        print(f"{cc} & {cov:.0f} & {ms:.2f} & {ge2:.1f} & {ge3:.1f} & {ml} & {mr} \\\\")
+
     # --- decay tables (median leg distance in metres) -----------------------------------
     mode_km = defaultdict(lambda: ([], []))
     to_km = defaultdict(lambda: ([], []))

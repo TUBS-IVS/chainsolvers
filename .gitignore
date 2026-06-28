@@ -21,6 +21,8 @@ out/
 # MiD HTS data must NEVER be committed (huge + licensed). Synthetic/generated output is disposable.
 research/data/
 research/out/
+# Block A audit artifacts (generated run outputs, not library/eval code)
+research/block_a_audit/
 # Large/licensed source data dropped in research/ root (e.g. the NI synthetic-population GeoPackage).
 research/*.gpkg
 *.gpkg
