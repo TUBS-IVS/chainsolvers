@@ -13,10 +13,14 @@ STYLE = {
     "dp_carla":        ("#2ca02c", "s", "--"),
     "dp_rings_refine": ("#d62728", "v", "-."),
     "dp_carla_refine": ("#9467bd", "D", "-."),
+    "dp_carla_pot":    ("#1a9850", "8", "-"),   # potential-pooled near-oracle (Block B)
     "dp_full":         ("#8c564b", "*", "-"),
     "rda":             ("#e377c2", "X", "--"),
     "rda_guided":      ("#7f7f7f", "P", "-."),
     "dp_sample":       ("#bcbd22", "p", "-"),
+    "dp_sample_capped": ("#5ab4ac", "<", "-"),  # dp_sample + candidate cap (fast variant)
+    "carla_sample":    ("#e6ab02", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample)
+    "gravity_independent": ("#a6761d", ">", "--"),  # no-coupling gravity floor (alpha-independent)
     "dp_sample_tuned": ("#17becf", "h", "-"),
 }
 COL = {k: v[0] for k, v in STYLE.items()}  # colour lookup (bars/patches)

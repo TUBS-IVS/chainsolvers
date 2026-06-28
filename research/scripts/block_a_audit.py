@@ -56,7 +56,7 @@ def main():
         p("\n[R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):")
         for reg in REGIMES:
             cells = []
-            for s in PLACEMENT + ["rda", "dp_sample", "dp_sample_tuned"]:
+            for s in PLACEMENT + ["rda", "carla_sample", "dp_sample", "dp_sample_tuned"]:
                 if s not in sols:
                     continue
                 g = gap_series(raw, s, reg).to_numpy(float); ok = ~np.isnan(g)

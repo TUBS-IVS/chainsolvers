@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 WORLDS = ["gauss_hannover", "osm_hannover", "two_zone"]
 TITLE = {"gauss_hannover": "Gauss-Hannover", "osm_hannover": "OSM-Hannover", "two_zone": "Two-zone"}
 PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # dp_full = oracle (0), omitted
-BASELINES = ["rda", "dp_sample", "dp_sample_tuned"]  # generative/RDA off-scale refs; rda_guided broken -> not plotted
+BASELINES = ["rda", "carla_sample", "dp_sample", "dp_sample_tuned"]  # non-argmin refs (RDA + generative): carla_sample (constrained, near-feasible) vs dp_sample (joint, off-scale); rda_guided broken -> not plotted
 REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
 B = "research/out/block_a"
@@ -130,7 +130,7 @@ def a7():  # DEPRECATED: A7 (density-trade) is superseded by A8 (density x lengt
 def a8(w):
     df = pd.read_csv(f"{B}/{w}/8_density_length.csv")
     lengths = sorted(df.n_free.unique())
-    sol_rt = ["carla", "rda", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", "dp_full"]
+    sol_rt = ["carla", "carla_sample", "rda", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", "dp_full"]
     sol_gap = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # rda off-scale, dp_full=0
     fig, axes = plt.subplots(2, len(lengths), figsize=(4 * len(lengths), 7), sharex=True)
     for j, n in enumerate(lengths):
@@ -184,5 +184,5 @@ a4()
 for _w in WORLDS:
     a8(_w)
 panel(a5, "A5_nwall.pdf")
-panel(a6, "A6_recall.pdf")
+# a6 (recall sweep) DEPRECATED -- removed from the paper (dead flat line; result kept as prose). Not generated.
 print("DONE")

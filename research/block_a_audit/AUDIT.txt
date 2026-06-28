@@ -6,11 +6,11 @@ gauss_hannover
 ==============================================================================
 
 [R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
-   true                 carla=4.30+-0.63  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=71.16+-4.57  dp_sample=7329.23+-201.13  dp_sample_tuned=7620.16+-192.42
-   dist_noise=0.15      carla=2.45+-0.38  dp_rings=0.07+-0.05  dp_carla=0.07+-0.05  dp_rings_refine=0.04+-0.04  dp_carla_refine=0.04+-0.04  rda=799.55+-108.78  dp_sample=6832.28+-190.41  dp_sample_tuned=7165.05+-187.41
-   dist_sampled         carla=3.16+-0.43  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=64.14+-6.42  dp_sample=7323.18+-201.68  dp_sample_tuned=7597.15+-194.49
-   anchor_disturb=1000m carla=4.20+-0.62  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=89.41+-12.20  dp_sample=7301.93+-200.72  dp_sample_tuned=7611.70+-191.97
-   anchor_remove        carla=4.77+-0.63  dp_rings=0.04+-0.04  dp_carla=0.04+-0.04  dp_rings_refine=0.04+-0.04  dp_carla_refine=0.04+-0.04  rda=70.68+-4.50  dp_sample=7763.32+-194.43  dp_sample_tuned=7915.70+-194.67
+   true                 carla=4.30+-0.63  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=71.16+-4.57  carla_sample=27.03+-3.48  dp_sample=7329.23+-201.13  dp_sample_tuned=7620.16+-192.42
+   dist_noise=0.15      carla=2.45+-0.38  dp_rings=0.07+-0.05  dp_carla=0.07+-0.05  dp_rings_refine=0.04+-0.04  dp_carla_refine=0.04+-0.04  rda=799.55+-108.78  carla_sample=39.97+-4.65  dp_sample=6832.28+-190.41  dp_sample_tuned=7165.05+-187.41
+   dist_sampled         carla=3.16+-0.43  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=64.14+-6.42  carla_sample=44.01+-5.18  dp_sample=7323.18+-201.68  dp_sample_tuned=7597.15+-194.49
+   anchor_disturb=1000m carla=4.20+-0.62  dp_rings=0.05+-0.05  dp_carla=0.05+-0.05  dp_rings_refine=0.05+-0.05  dp_carla_refine=0.05+-0.05  rda=89.41+-12.20  carla_sample=27.84+-3.50  dp_sample=7301.93+-200.72  dp_sample_tuned=7611.70+-191.97
+   anchor_remove        carla=4.77+-0.63  dp_rings=0.04+-0.04  dp_carla=0.04+-0.04  dp_rings_refine=0.04+-0.04  dp_carla_refine=0.04+-0.04  rda=70.68+-4.50  carla_sample=36.37+-4.46  dp_sample=7763.32+-194.43  dp_sample_tuned=7915.70+-194.67
 
 [R1] proven optimality on `true` (% persons with gap < 0.5 m):
    carla              93.4%  (mean gap 4.30 m)
@@ -49,11 +49,11 @@ osm_hannover
 ==============================================================================
 
 [R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
-   true                 carla=3.46+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=92.41+-6.29  dp_sample=7270.62+-195.06  dp_sample_tuned=7452.68+-191.78
-   dist_noise=0.15      carla=3.76+-1.07  dp_rings=1.12+-0.98  dp_carla=1.12+-0.98  dp_rings_refine=0.02+-0.01  dp_carla_refine=0.02+-0.01  rda=680.69+-92.98  dp_sample=6868.16+-190.06  dp_sample_tuned=7044.53+-189.51
-   dist_sampled         carla=4.04+-0.86  dp_rings=0.35+-0.20  dp_carla=0.35+-0.20  dp_rings_refine=0.25+-0.19  dp_carla_refine=0.25+-0.19  rda=88.36+-6.91  dp_sample=7269.19+-194.00  dp_sample_tuned=7438.11+-187.86
-   anchor_disturb=1000m carla=3.49+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=139.95+-22.38  dp_sample=7255.56+-195.81  dp_sample_tuned=7410.42+-192.00
-   anchor_remove        carla=4.08+-0.56  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=115.84+-7.15  dp_sample=7578.51+-190.00  dp_sample_tuned=7505.14+-182.13
+   true                 carla=3.46+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=92.41+-6.29  carla_sample=41.30+-5.99  dp_sample=7270.62+-195.06  dp_sample_tuned=7452.68+-191.78
+   dist_noise=0.15      carla=3.76+-1.07  dp_rings=1.12+-0.98  dp_carla=1.12+-0.98  dp_rings_refine=0.02+-0.01  dp_carla_refine=0.02+-0.01  rda=680.69+-92.98  carla_sample=92.42+-18.40  dp_sample=6868.16+-190.06  dp_sample_tuned=7044.53+-189.51
+   dist_sampled         carla=4.04+-0.86  dp_rings=0.35+-0.20  dp_carla=0.35+-0.20  dp_rings_refine=0.25+-0.19  dp_carla_refine=0.25+-0.19  rda=88.36+-6.91  carla_sample=75.14+-7.76  dp_sample=7269.19+-194.00  dp_sample_tuned=7438.11+-187.86
+   anchor_disturb=1000m carla=3.49+-0.53  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=139.95+-22.38  carla_sample=41.36+-5.99  dp_sample=7255.56+-195.81  dp_sample_tuned=7410.42+-192.00
+   anchor_remove        carla=4.08+-0.56  dp_rings=0.00+-0.00  dp_carla=0.00+-0.00  dp_rings_refine=0.00+-0.00  dp_carla_refine=0.00+-0.00  rda=115.84+-7.15  carla_sample=42.71+-5.79  dp_sample=7578.51+-190.00  dp_sample_tuned=7505.14+-182.13
 
 [R1] proven optimality on `true` (% persons with gap < 0.5 m):
    carla              93.9%  (mean gap 3.46 m)
@@ -92,11 +92,11 @@ two_zone
 ==============================================================================
 
 [R1] gap-to-oracle x difficulty (mean m above dp_full, +- SE):
-   true                 carla=6.71+-1.82  dp_rings=2.40+-1.43  dp_carla=2.40+-1.43  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.51+-0.51  rda=134.27+-13.78  dp_sample=22943.90+-1065.75  dp_sample_tuned=23843.63+-985.18
-   dist_noise=0.15      carla=5.07+-1.53  dp_rings=2.39+-1.37  dp_carla=2.39+-1.37  dp_rings_refine=0.60+-0.52  dp_carla_refine=0.59+-0.52  rda=2027.96+-423.39  dp_sample=21701.55+-1018.30  dp_sample_tuned=22679.46+-949.62
-   dist_sampled         carla=4.62+-1.10  dp_rings=1.12+-0.69  dp_carla=1.12+-0.69  dp_rings_refine=0.57+-0.51  dp_carla_refine=0.57+-0.51  rda=135.47+-24.21  dp_sample=23105.70+-1055.93  dp_sample_tuned=23795.34+-959.25
-   anchor_disturb=1000m carla=5.82+-1.62  dp_rings=1.44+-1.06  dp_carla=1.44+-1.06  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.51+-0.51  rda=191.24+-42.70  dp_sample=22888.96+-1064.04  dp_sample_tuned=23780.85+-983.40
-   anchor_remove        carla=6.51+-1.42  dp_rings=2.25+-1.06  dp_carla=2.25+-1.06  dp_rings_refine=1.46+-0.72  dp_carla_refine=1.46+-0.72  rda=156.92+-11.89  dp_sample=25733.24+-1032.19  dp_sample_tuned=27042.59+-973.32
+   true                 carla=6.71+-1.82  dp_rings=2.40+-1.43  dp_carla=2.40+-1.43  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.51+-0.51  rda=134.27+-13.78  carla_sample=50.40+-13.60  dp_sample=22943.90+-1065.75  dp_sample_tuned=23843.63+-985.18
+   dist_noise=0.15      carla=5.07+-1.53  dp_rings=2.39+-1.37  dp_carla=2.39+-1.37  dp_rings_refine=0.60+-0.52  dp_carla_refine=0.59+-0.52  rda=2027.96+-423.39  carla_sample=109.41+-31.31  dp_sample=21701.55+-1018.30  dp_sample_tuned=22679.46+-949.62
+   dist_sampled         carla=4.62+-1.10  dp_rings=1.12+-0.69  dp_carla=1.12+-0.69  dp_rings_refine=0.57+-0.51  dp_carla_refine=0.57+-0.51  rda=135.47+-24.21  carla_sample=106.92+-25.01  dp_sample=23105.70+-1055.93  dp_sample_tuned=23795.34+-959.25
+   anchor_disturb=1000m carla=5.82+-1.62  dp_rings=1.44+-1.06  dp_carla=1.44+-1.06  dp_rings_refine=0.51+-0.51  dp_carla_refine=0.51+-0.51  rda=191.24+-42.70  carla_sample=50.74+-13.58  dp_sample=22888.96+-1064.04  dp_sample_tuned=23780.85+-983.40
+   anchor_remove        carla=6.51+-1.42  dp_rings=2.25+-1.06  dp_carla=2.25+-1.06  dp_rings_refine=1.46+-0.72  dp_carla_refine=1.46+-0.72  rda=156.92+-11.89  carla_sample=34.71+-5.03  dp_sample=25733.24+-1032.19  dp_sample_tuned=27042.59+-973.32
 
 [R1] proven optimality on `true` (% persons with gap < 0.5 m):
    carla              96.8%  (mean gap 6.71 m)

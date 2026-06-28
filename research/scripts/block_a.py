@@ -56,7 +56,7 @@ ORACLE = "dp_full"
 # dp_sample = untuned generative MNL (stock default_scale, single-scale, no tail); dp_sample_tuned =
 # the calibrated "fitted-tail" recipe (per-world MLE body scale + mixture tail shape, see
 # `_calibrate_dp_sample` / dp_sample_distfit). Both are generative (sample, not argmin) -> off-scale.
-_BASELINES = frozenset({"rda", "rda_guided", "dp_sample", "dp_sample_tuned"})
+_BASELINES = frozenset({"rda", "rda_guided", "dp_sample", "dp_sample_tuned", "carla_sample"})
 
 # tuned-dp_sample calibration knobs (the validated fitted-tail config from dp_sample_distfit.py).
 DP_TUNED_TRANSFORM = "log1p"
@@ -115,6 +115,8 @@ SOLVERS: Dict[str, object] = {
     "dp_rings_refine": "dp_rings_refine", "dp_carla_refine": "dp_carla_refine", "dp_full": "dp_full",
     "dp_sample": "dp_sample",              # untuned generative reference (stock defaults)
     "dp_sample_tuned": "dp_sample",        # same class; per-world calibrated params injected via `extra`
+    "carla_sample": "carla_sample",        # CARLA greedy-ancestral sampler: generative but constrained
+                                           # to CARLA's geometric candidates -> near-feasible (not off-scale)
     "rda": RelaxationDiscretization, "rda_guided": RelaxationDiscretizationGuided,  # MIT fallback
 }
 _VENDORED = _vendored_rda()
@@ -481,7 +483,7 @@ def result_scaling(world, n_persons, seed, out_dir,
     as n grows but stays large enough to smooth per-chain timing variance; a solver is dropped for
     longer n once a single point exceeds `cap_s` (CARLA's exponential blowup is the point)."""
     rows = []
-    for solver in ["carla", "dp_carla", "dp_carla_refine"]:
+    for solver in ["carla", "carla_sample", "dp_carla", "dp_carla_refine"]:  # carla_sample: 1-branch greedy sampler (runtime ref)
         for n in lengths:
             k = 60 if n <= 4 else 30 if n <= 8 else 12  # more draws -> smoother curve (was 25/8/3)
             pl, _ = synth_chain_plans(world, n, k, seed)
@@ -583,7 +585,7 @@ def result_nwall(world, n_persons, seed, out_dir, levels=(250, 500, 1000, 2000, 
     max_sec = max((len(world.locations_tuple[0][t]) for t in free_types if t in world.locations_tuple[0]), default=10**9)
     levels = tuple(N for N in levels if N <= max_sec) or (min(max_sec, max(levels)),)
     # all algorithms (rda_guided excluded — broken & slow): only dp_full should show the N^2 wall.
-    nwall_solvers = [s for s in ["carla", "dp_rings", "dp_carla", "dp_rings_refine",
+    nwall_solvers = [s for s in ["carla", "carla_sample", "dp_rings", "dp_carla", "dp_rings_refine",
                                  "dp_carla_refine", "rda", "dp_full"] if s in SOLVERS]
     rows = []
     for N in levels:
@@ -731,7 +733,7 @@ def _dl_cell(args):
     scored = _scored_legs(pl, gt)
     npers = pl["unique_person_id"].nunique()
     loc = _subsample_locations(world.locations_tuple, N, seed)
-    solvers = [s for s in ["carla", "rda", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", ORACLE]
+    solvers = [s for s in ["carla", "carla_sample", "rda", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", ORACLE]
                if s in SOLVERS]
 
     def solve(s):
