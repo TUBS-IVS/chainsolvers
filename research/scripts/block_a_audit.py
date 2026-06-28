@@ -128,10 +128,10 @@ def main():
         if os.path.exists(f2):
             fr = pd.read_csv(f2).merge(pd.read_csv(f"{B}/{w}/2_frontier_meta.csv"), on=["solver", "knob", "val"])
             agg = fr.groupby(["solver", "val"], as_index=False).agg(dev=("dev_m", "mean"), rt=("runtime_s", "first"))
-            for s in ["carla", "dp_carla", "rda"]:
+            for s in ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine", "rda"]:
                 d = agg[agg.solver == s]
                 if not d.empty:
-                    p(f"[R2] frontier {s:10s} runtime[{d.rt.min():.2f}-{d.rt.max():.2f}]s dev[{d.dev.min():.0f}-{d.dev.max():.0f}]m")
+                    p(f"[R2] frontier {s:15s} runtime[{d.rt.min():.2f}-{d.rt.max():.2f}]s dev[{d.dev.min():.0f}-{d.dev.max():.0f}]m")
 
         # anchor-quality subpopulation (reconstruct affected set deterministically; read dev from CSV)
         world = ba.load(w); samp = S.sample_persons(world, 1000, seed=SEED); rng = np.random.default_rng(SEED)

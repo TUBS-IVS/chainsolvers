@@ -34,9 +34,12 @@ gauss_hannover
    n= 2  carla=11.3  dp_carla=1.0  dp_carla_refine=0.0  dp_rings_refine=0.0   dp_carla rt 1->2ms (2x)  dp_full rt 5->818ms
    n= 6  carla=49.9  dp_carla=20.5  dp_carla_refine=6.0  dp_rings_refine=6.0   dp_carla rt 12->91ms (8x)  dp_full rt 31->1653ms
    n=10  carla=62.4  dp_carla=114.2  dp_carla_refine=7.5  dp_rings_refine=7.5   dp_carla rt 16->745ms (47x)  dp_full rt 57->2834ms
-[R2] frontier carla      runtime[0.39-2.80]s dev[57-82]m
-[R2] frontier dp_carla   runtime[1.58-2.34]s dev[53-56]m
-[R2] frontier rda        runtime[2.05-77.49]s dev[92-1270]m
+[R2] frontier carla           runtime[0.39-2.80]s dev[57-82]m
+[R2] frontier dp_rings        runtime[2.31-3.80]s dev[53-55]m
+[R2] frontier dp_carla        runtime[1.58-2.34]s dev[53-56]m
+[R2] frontier dp_rings_refine runtime[3.04-3.42]s dev[53-53]m
+[R2] frontier dp_carla_refine runtime[1.91-2.15]s dev[53-53]m
+[R2] frontier rda             runtime[2.05-77.49]s dev[92-1270]m
 
 [R1-anchor] work-bounded affected subpop: 75 persons (8.7% of placed)
    dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 168)
@@ -77,9 +80,12 @@ osm_hannover
    n= 2  carla=10.7  dp_carla=0.6  dp_carla_refine=0.1  dp_rings_refine=0.1   dp_carla rt 2->1ms (1x)  dp_full rt 4->148ms
    n= 6  carla=58.5  dp_carla=10.0  dp_carla_refine=6.9  dp_rings_refine=6.9   dp_carla rt 7->335ms (46x)  dp_full rt 25->1083ms
    n=10  carla=79.1  dp_carla=17.1  dp_carla_refine=13.2  dp_rings_refine=13.2   dp_carla rt 17->1069ms (61x)  dp_full rt 44->2069ms
-[R2] frontier carla      runtime[0.78-4.03]s dev[67-107]m
-[R2] frontier dp_carla   runtime[2.32-3.52]s dev[63-71]m
-[R2] frontier rda        runtime[5.55-183.35]s dev[117-1921]m
+[R2] frontier carla           runtime[0.78-4.03]s dev[67-107]m
+[R2] frontier dp_rings        runtime[1.55-2.50]s dev[63-71]m
+[R2] frontier dp_carla        runtime[2.32-3.52]s dev[63-71]m
+[R2] frontier dp_rings_refine runtime[2.05-2.32]s dev[62-64]m
+[R2] frontier dp_carla_refine runtime[2.49-2.94]s dev[62-64]m
+[R2] frontier rda             runtime[5.55-183.35]s dev[117-1921]m
 
 [R1-anchor] work-bounded affected subpop: 65 persons (7.5% of placed)
    dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 300)
@@ -120,9 +126,12 @@ two_zone
    n= 2  carla=9.7  dp_carla=13.8  dp_carla_refine=0.0  dp_rings_refine=0.0   dp_carla rt 1->3ms (3x)  dp_full rt 2->938ms
    n= 6  carla=882.1  dp_carla=1694.3  dp_carla_refine=21.2  dp_rings_refine=21.2   dp_carla rt 4->7ms (2x)  dp_full rt 21->4331ms
    n=10  carla=811.1  dp_carla=2474.4  dp_carla_refine=66.3  dp_rings_refine=66.3   dp_carla rt 4->45ms (11x)  dp_full rt 40->8145ms
-[R2] frontier carla      runtime[0.76-3.36]s dev[226-284]m
-[R2] frontier dp_carla   runtime[2.46-3.91]s dev[230-244]m
-[R2] frontier rda        runtime[3.96-133.79]s dev[311-3785]m
+[R2] frontier carla           runtime[0.76-3.36]s dev[226-284]m
+[R2] frontier dp_rings        runtime[2.07-3.06]s dev[230-244]m
+[R2] frontier dp_carla        runtime[2.46-3.91]s dev[230-244]m
+[R2] frontier dp_rings_refine runtime[2.51-3.16]s dev[222-230]m
+[R2] frontier dp_carla_refine runtime[3.00-3.34]s dev[222-230]m
+[R2] frontier rda             runtime[3.96-133.79]s dev[311-3785]m
 
 [R1-anchor] work-bounded affected subpop: 52 persons (6.2% of placed)
    dp_full  gap-above-oracle: true=0.0 -> disturb=0.0  DEGRADATION=+0 m   (raw dev: true 0 -> disturb 334)

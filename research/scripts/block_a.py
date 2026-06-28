@@ -400,7 +400,9 @@ def _plot_gap_difficulty(df, path):
 
 _KNOBS = {
     "carla": ("number_of_branches", [2, 5, 10, 20, 40]),
+    "dp_rings": ("min_candidates", [5, 10, 25, 50, 100]),
     "dp_carla": ("min_candidates", [5, 10, 25, 50, 100]),
+    "dp_rings_refine": ("refine_passes", [0, 1, 2, 5, 10]),
     "dp_carla_refine": ("refine_passes", [0, 1, 2, 5, 10]),
     "rda": ("n_restarts", [1, 3, 10, 20, 40]),
 }

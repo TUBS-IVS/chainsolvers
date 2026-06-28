@@ -64,18 +64,43 @@ def a1b(ax, w):
         ax.legend(fontsize=7)
 
 
-def a2(ax, w):
+def a2(ax, w, exclude=(), logscale=True):
+    """Quality--runtime frontier. The placement family uses the mean over the REPEATED robustness runs
+    (2_frontier_robust_meta.csv) for runtime (run-to-run spread is small -- reported in the text, not
+    drawn). rda (and any solver absent from the robust file) is drawn from the single canonical sweep
+    as-is. Deviation is deterministic, so the mean line's y is exact."""
+    import os
     raw = pd.read_csv(f"{B}/{w}/2_frontier_raw.csv")
     meta = pd.read_csv(f"{B}/{w}/2_frontier_meta.csv")
-    agg = raw.groupby(["solver", "knob", "val"], as_index=False)["dev_m"].mean().merge(meta, on=["solver", "knob", "val"])
-    for s in agg["solver"].drop_duplicates():
-        d = agg[agg.solver == s].sort_values("runtime_s")
-        _line(ax, d["runtime_s"], d["dev_m"], s)
-    ax.set_xscale("log"); ax.set_yscale("log"); ax.set_xlabel("runtime [s] (log)")
+    canon = raw.groupby(["solver", "knob", "val"], as_index=False)["dev_m"].mean().merge(meta, on=["solver", "knob", "val"])
+    robp = f"{B}/{w}/2_frontier_robust_meta.csv"
+    rob = pd.read_csv(robp) if os.path.exists(robp) else pd.DataFrame(columns=["run", "solver", "val", "runtime_s", "mean_dev_m"])
+    rob_solvers = set(rob["solver"].unique())
+    for s in canon["solver"].drop_duplicates():
+        if s in exclude:
+            continue
+        if s in rob_solvers:                                # robust: mean-over-runs line
+            m = rob[rob.solver == s].groupby("val", as_index=False).agg(
+                runtime_s=("runtime_s", "mean"), dev_m=("mean_dev_m", "mean")).sort_values("val")
+            _line(ax, m["runtime_s"], m["dev_m"], s)
+        else:                                               # canonical (rda) as-is
+            d = canon[canon.solver == s].sort_values("runtime_s")
+            _line(ax, d["runtime_s"], d["dev_m"], s)
+    if logscale:
+        ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlabel("runtime [s] (log)" if logscale else "runtime [s]")
     if w == WORLDS[0]:
-        ax.set_ylabel("mean deviation [m] (log)")
+        ax.set_ylabel("mean deviation [m] (log)" if logscale else "mean deviation [m]")
     if w == WORLDS[-1]:
         ax.legend(fontsize=7)
+
+
+def a2_norda(ax, w):  # additional zoomed frontier: rda dropped so the placement family's axes expand
+    a2(ax, w, exclude={"rda"})
+
+
+def a2_norda_lin(ax, w):  # additional: rda-excluded frontier on linear axes
+    a2(ax, w, exclude={"rda"}, logscale=False)
 
 
 def a3(ax, w):
@@ -178,6 +203,8 @@ def a4():
 panel(a1, "A1_gap_difficulty.pdf")
 panel(a1b, "A1b_baselines.pdf")
 panel(a2, "A2_frontier.pdf")
+panel(a2_norda, "A2b_frontier_norda.pdf")  # additional: same frontier, rda excluded (placement family zoom)
+panel(a2_norda_lin, "A2c_frontier_norda_lin.pdf")  # additional: rda excluded, linear axes
 panel(a3, "A3_scaling.pdf")
 a4()
 # a7() is DEPRECATED -- A7 density-trade superseded by A8 (density x length). Not generated.
