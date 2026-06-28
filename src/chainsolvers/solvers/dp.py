@@ -66,6 +66,8 @@ def attr_value(values: np.ndarray, transform: str = "log1p") -> np.ndarray:
     """Attractiveness term entering the MNL utility. ``"log1p"`` (= log(1+x), robust to
     zeros) or ``"log"`` (= log(x), the pure gravity form; strictly-positive inputs)."""
     v = np.asarray(values, dtype=float)
+    if transform in ("linear", "none"):
+        return v
     if transform == "log":
         return np.log(np.maximum(v, 1e-9))
     return np.log1p(v)
@@ -109,15 +111,17 @@ def _build_layers(S: np.ndarray, E: np.ndarray, pools: List[Pool]):
     return layer_coords, layer_pots, sizes, offsets, int(offsets[-1])
 
 
-def _edges(layer_coords, layer_pots, distances, alpha, beta, sizes, offsets):
-    """All inter-layer edges as (src, dst, weight). weight = beta*|d - ||a-b||| - alpha*P(b)."""
+def _edges(layer_coords, layer_pots, distances, alpha, beta, sizes, offsets, transform="linear"):
+    """All inter-layer edges as (src, dst, weight). weight = beta*|d - ||a-b||| - alpha*attr(P(b)).
+    `transform` selects the attractiveness form applied to potentials (linear/log1p/log) so the
+    combined objective can match the calibrated MNL; ``linear`` (= raw P) is the historical default."""
     rows: List[np.ndarray] = []
     cols: List[np.ndarray] = []
     data: List[np.ndarray] = []
     for i in range(1, len(layer_coords)):
         d = float(distances[i - 1])                       # leg i connects layer i-1 -> layer i
         D = cdist(layer_coords[i - 1], layer_coords[i])   # (Ka, Kb) euclidean
-        W = beta * np.abs(d - D) - alpha * layer_pots[i][None, :]
+        W = beta * np.abs(d - D) - alpha * attr_value(layer_pots[i], transform)[None, :]
         ka, kb = sizes[i - 1], sizes[i]
         rows.append(offsets[i - 1] + np.repeat(np.arange(ka), kb))
         cols.append(offsets[i] + np.tile(np.arange(kb), ka))
@@ -188,6 +192,7 @@ def solve_chain(
     pools: List[Pool],
     alpha: float,
     beta: float,
+    attr_transform: str = "linear",
     method: str = "dp",
 ) -> List[Choice]:
     """Optimally assign free-node locations on the layered candidate graph.
@@ -198,7 +203,7 @@ def solve_chain(
     """
     num_free = len(pools)
     layer_coords, layer_pots, sizes, offsets, total = _build_layers(S, E, pools)
-    src, dst, w = _edges(layer_coords, layer_pots, distances, alpha, beta, sizes, offsets)
+    src, dst, w = _edges(layer_coords, layer_pots, distances, alpha, beta, sizes, offsets, attr_transform)
 
     if method == "dp":
         path = _path_via_dp(src, dst, w, total)
@@ -374,6 +379,7 @@ class Dp:
         cfg_params.setdefault("pot_pool_k", self._pot_pool_k)
         self.config = DpConfig(**cfg_params)
         self.alpha, self.beta = _alpha_beta_from_scorer(scorer)
+        self.attr_transform = getattr(scorer, "attr_transform", "linear")
         self._pot_top_cache: dict = {}
 
     def solve(self, *, plans):
@@ -398,7 +404,8 @@ class Dp:
         E = h.to_point_1d(segment[-1].to_location)
         distances = np.array([leg.distance for leg in segment], dtype=float)
         pools = [self._gen_pool(segment, S, E, distances, fj) for fj in range(n - 1)]
-        chosen = solve_chain(S, E, distances, pools, self.alpha, self.beta, method=self._method)
+        chosen = solve_chain(S, E, distances, pools, self.alpha, self.beta,
+                             attr_transform=self.attr_transform, method=self._method)
         if self.config.refine_passes > 0 and n >= 3:
             chosen = self._refine(segment, S, E, distances, chosen)
         return _build_placed_segment(segment, chosen)
@@ -421,7 +428,8 @@ class Dp:
                 act_type = segment[fj].to_act_type
                 pool = self._gen_pool_local(act_type, Lc, Rc, distances[fj], distances[fj + 1])
                 new_pools.append(_augment_pool(pool, chosen[fj]))  # carry forward -> monotone
-            new_chosen = solve_chain(S, E, distances, new_pools, self.alpha, self.beta, method=self._method)
+            new_chosen = solve_chain(S, E, distances, new_pools, self.alpha, self.beta,
+                                    attr_transform=self.attr_transform, method=self._method)
             if [c[0] for c in new_chosen] == [c[0] for c in chosen]:
                 return new_chosen  # converged
             chosen = new_chosen
@@ -610,8 +618,10 @@ class DpSample(Dp):
         self.dist_shape = float(params.pop("dist_shape", 1.0))             # powerlaw exponent k
         self.dist_shapes = dict(params.pop("dist_shapes", {}) or {})       # per-mode k
         self.global_mix_k = int(params.pop("global_mix_k", 0))
-        self.attr_transform = str(params.pop("attr_transform", "log1p"))
+        self.max_candidates = int(params.pop("max_candidates", 0))  # 0 = uncapped (current behaviour)
+        _attr_transform = str(params.pop("attr_transform", "log1p"))
         super().__init__(locations, scorer, selector, rng, visualizer, progress, stats, **params)
+        self.attr_transform = _attr_transform  # DpSample's own form (overrides Dp's scorer default)
         self.alpha = float(getattr(scorer, "pot_weight", 1.0))
         if self.rng is None:
             self.rng = np.random.default_rng()
@@ -682,7 +692,21 @@ class DpSample(Dp):
         if ids is None or ids.size == 0:
             raise RuntimeError(f"No candidates for free node {fj} (type {act_type!r}).")
         pool = (ids, np.asarray(coords, dtype=float), np.asarray(pots, dtype=float))
+        pool = self._cap_pool(pool)
         return self._augment_global(act_type, pool)
+
+    def _cap_pool(self, pool: Pool) -> Pool:
+        """Cap the candidate pool to ``max_candidates`` by even spatial downsampling — preserves the
+        spatial spread (incl. far/tail candidates) while bounding ``sample_chain``'s per-leg cdist to
+        O(cap^2) instead of O(N^2). Needed on large-extent worlds (e.g. two_zone), where a long
+        decay scale grows the radius ball toward the whole catalog. No-op when ``max_candidates``==0."""
+        ids, coords, pots = pool
+        cap = self.max_candidates
+        if not cap or ids.size <= cap:
+            return pool
+        ncx = max(1, int(np.sqrt(cap)))
+        keep = np.asarray(h.even_spatial_downsample(coords, ncx, ncx)[:cap], dtype=int)
+        return ids[keep], coords[keep], pots[keep]
 
     def _solve_segment(self, segment: Segment) -> Segment:
         n = len(segment)
