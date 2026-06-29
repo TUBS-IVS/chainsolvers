@@ -7,16 +7,31 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 WORLDS = ["gauss_hannover", "osm_hannover", "two_zone"]
-TITLE = {"gauss_hannover": "Gauss-Hannover", "osm_hannover": "OSM-Hannover", "two_zone": "Two-zone"}
+# TITLE (display names) comes from the shared WORLD_NAME map, set right after the import below.
 PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # dp_full = oracle (0), omitted
-BASELINES = ["rda", "carla_sample", "dp_sample", "dp_sample_tuned"]  # non-argmin refs (RDA + generative): carla_sample (constrained, near-feasible) vs dp_sample (joint, off-scale); rda_guided broken -> not plotted
+BASELINES = ["rda", "carla_sample", "dp_sample"]  # non-argmin refs (RDA + generative): carla_sample (constrained, near-feasible) vs dp_sample (joint, off-scale). dp_sample here is the CALIBRATED fitted-tail model -- the same generative model reported in Blocks B/C -- surfaced under its canonical name (see _consolidate_sample); rda_guided broken -> not plotted
 REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
 B = "research/out/block_a"
 
 # House style (per-solver colour+marker+linestyle, hollow faces) lives in block_a_style so Block A,
 # Block B, the robust companions, and any future figure share it. Import; do not redefine.
-from block_a_style import STYLE, COL, line as _line  # noqa: E402,F401
+from block_a_style import STYLE, COL, line as _line, apply_paper_style, WORLD_NAME  # noqa: E402,F401
+
+apply_paper_style()  # seaborn whitegrid + canonical font sizes for the whole figure set
+TITLE = WORLD_NAME   # shared display names (consistent across every figure)
+
+
+def _consolidate_sample(raw):
+    """Report ONE generative dp_sample everywhere: the calibrated fitted-tail model (MLE body scale +
+    heavy-tail mixture), which the solve harness stores under `dp_sample_tuned`. This is the same
+    calibrated generative model used (unnamed) in Blocks B/C; the stock-default untuned `dp_sample`
+    rows were only ever an ablation and are dropped here. Falls back gracefully (keeps untuned) if the
+    tuned rows are absent."""
+    if (raw.solver == "dp_sample_tuned").any():
+        raw = raw[raw.solver != "dp_sample"].copy()
+        raw.loc[raw.solver == "dp_sample_tuned", "solver"] = "dp_sample"
+    return raw
 
 
 def _gap(raw, s, reg):
@@ -44,24 +59,24 @@ def a1(ax, w):
     for s in PLACEMENT:
         m = [_gap(raw, s, r)[0] for r in REGIMES]; e = [_gap(raw, s, r)[1] for r in REGIMES]
         _line(ax, range(len(REGIMES)), m, s, yerr=e)
-    ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB, fontsize=8)
+    ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB)
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person")
     if w == WORLDS[-1]:
-        ax.legend(fontsize=7, ncol=2)
+        ax.legend(ncol=2)
 
 
 def a1b(ax, w):
-    raw = pd.read_csv(f"{B}/{w}/1_gap_raw.csv")
+    raw = _consolidate_sample(pd.read_csv(f"{B}/{w}/1_gap_raw.csv"))
     for s in BASELINES:
         if not (raw.solver == s).any():
             continue
         m = [_gap(raw, s, r)[0] for r in REGIMES]
         _line(ax, range(len(REGIMES)), m, s)
-    ax.set_yscale("log"); ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB, fontsize=8)
+    ax.set_yscale("log"); ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB)
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person (log)")
-        ax.legend(fontsize=7)
+        ax.legend()
 
 
 def a2(ax, w, exclude=(), logscale=True):
@@ -92,7 +107,7 @@ def a2(ax, w, exclude=(), logscale=True):
     if w == WORLDS[0]:
         ax.set_ylabel("mean deviation [m] (log)" if logscale else "mean deviation [m]")
     if w == WORLDS[-1]:
-        ax.legend(fontsize=7)
+        ax.legend()
 
 
 def a2_norda(ax, w):  # additional zoomed frontier: rda dropped so the placement family's axes expand
@@ -112,7 +127,7 @@ def a3(ax, w):
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
     if w == WORLDS[-1]:
-        ax.legend(fontsize=7)
+        ax.legend()
 
 
 def a5(ax, w):
@@ -124,7 +139,7 @@ def a5(ax, w):
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
     if w == WORLDS[-1]:
-        ax.legend(fontsize=6, ncol=2)
+        ax.legend(ncol=2)
 
 
 def a6(ax, w):
@@ -148,7 +163,7 @@ def a7():  # DEPRECATED: A7 (density-trade) is superseded by A8 (density x lengt
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")
         axes[1, j].set_yscale("log"); axes[1, j].set_xlabel("facilities per type N (log)")
     axes[0, 0].set_ylabel("gap above oracle [m]"); axes[1, 0].set_ylabel("ms / person (log)")
-    axes[0, 2].legend(fontsize=7)
+    axes[0, 2].legend()
     fig.tight_layout(); fig.savefig(f"{B}/A7_density_trade.pdf"); plt.close(fig); print("wrote A7_density_trade.pdf")
 
 
@@ -173,7 +188,7 @@ def a8(w):
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")
         axes[1, j].set_yscale("log"); axes[1, j].set_xlabel("facilities per type N (log)")
     axes[0, 0].set_ylabel("gap above oracle [m]\n(placement family)"); axes[1, 0].set_ylabel("ms / person (log)")
-    axes[0, -1].legend(fontsize=6); axes[1, -1].legend(fontsize=6)
+    axes[0, -1].legend(); axes[1, -1].legend()
     fig.tight_layout(); fig.savefig(f"{B}/A8_density_length_{w}.pdf"); plt.close(fig)
     print(f"wrote A8_density_length_{w}.pdf")
 

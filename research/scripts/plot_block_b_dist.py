@@ -17,7 +17,9 @@ import os
 import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
-from block_a_style import COL
+from block_a_style import COL, apply_paper_style
+
+apply_paper_style()  # seaborn whitegrid + canonical font sizes
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "out", "block_b")
 
@@ -62,18 +64,18 @@ def main(argv=None):
     for s, lab in [("dp_carla", "argmin (fed distances)"), ("dp_sample", "generative sampler"),
                    ("gravity_independent", "gravity floor")]:
         axL.plot(xs, kde(ach(s, a)), color=COL.get(s, "k"), lw=1.8, label=lab)
-    axL.set_title(f"distance distribution near calibrated α≈{cal:.2f} (grid α={a:g})", fontsize=10)
+    axL.set_title(f"distance distribution near calibrated α≈{cal:.2f} (grid α={a:g})")
     axL.set_xlabel("free-leg distance (m)"); axL.set_ylabel("density")
-    axL.legend(fontsize=8); axL.grid(alpha=0.3)
+    axL.legend(); axL.grid(alpha=0.3)
 
     # -- right: generative sampler as alpha grows --
     axR.fill_between(xs, kde(true_d), color="0.6", alpha=0.5, label="true (DGP)")
     for a_, ls, c in [(0.0, ":", "#4575b4"), (args.alpha_cal, "-", COL["dp_sample"]),
                       (20.0, "--", "#d73027")]:
         axR.plot(xs, kde(ach("dp_sample", a_)), lw=1.9, ls=ls, color=c, label=f"dp_sample, α={a_:g}")
-    axR.set_title("generative sampler vs α (over-weighting shifts it short)", fontsize=10)
+    axR.set_title("generative sampler vs α (over-weighting shifts it short)")
     axR.set_xlabel("free-leg distance (m)")
-    axR.legend(fontsize=8); axR.grid(alpha=0.3)
+    axR.legend(); axR.grid(alpha=0.3)
 
     fig.tight_layout()
     base = os.path.join(args.out, f"dist_illustration_{args.world}")

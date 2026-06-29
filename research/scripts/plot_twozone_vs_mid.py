@@ -101,8 +101,8 @@ def main():
     fig.suptitle("Two-zone world vs MiD — leg-distance density per mode (clipped at MiD p95; "
                  "dashed = medians)\nkm", y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
-    p1 = os.path.join(OUTDIR, "twozone_vs_mid_permode.png")
-    fig.savefig(p1, dpi=130); plt.close(fig)
+    p1 = os.path.join(OUTDIR, "twozone_vs_mid_permode.pdf")
+    fig.savefig(p1); fig.savefig(p1[:-4] + ".png", dpi=130); plt.close(fig)
 
     # --- per (mode, home->to) for the urban core, key destinations ---
     tos = ["work", "shop", "leisure", "other"]
@@ -114,8 +114,8 @@ def main():
                   mid_pair["urban"].get(key, []), f"{m} · home→{to}")
     fig.suptitle("Urban core — leg-distance density per (mode, home→activity): world vs MiD", y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
-    p2 = os.path.join(OUTDIR, "twozone_vs_mid_pairs.png")
-    fig.savefig(p2, dpi=130); plt.close(fig)
+    p2 = os.path.join(OUTDIR, "twozone_vs_mid_pairs.pdf")
+    fig.savefig(p2); fig.savefig(p2[:-4] + ".png", dpi=130); plt.close(fig)
     print("wrote", p1, "and", p2)
 
 

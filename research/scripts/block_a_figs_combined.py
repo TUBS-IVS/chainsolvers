@@ -23,9 +23,19 @@ WORLDS = ["gauss_hannover", "osm_hannover", "two_zone"]
 B = "research/out/block_a"
 
 PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # dp_full = oracle (0)
-BASELINES = ["rda", "carla_sample", "dp_sample", "dp_sample_tuned"]  # off-scale refs (log y)
+BASELINES = ["rda", "carla_sample", "dp_sample"]  # off-scale refs (log y). dp_sample = the calibrated fitted-tail model (== Blocks B/C), surfaced under its canonical name via _consolidate_sample
 REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
 RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
+
+
+def _consolidate_sample(raw):
+    """Report ONE generative dp_sample: the calibrated fitted-tail model (stored as `dp_sample_tuned`
+    by the solve harness; the same calibrated model used unnamed in Blocks B/C). Drops the stock-default
+    untuned `dp_sample` ablation rows. Falls back to untuned if the tuned rows are absent."""
+    if (raw.solver == "dp_sample_tuned").any():
+        raw = raw[raw.solver != "dp_sample"].copy()
+        raw.loc[raw.solver == "dp_sample_tuned", "solver"] = "dp_sample"
+    return raw
 
 
 def _gap(raw, s, reg):
@@ -45,7 +55,7 @@ def a1_combined():
     the former two separate floats into one figure."""
     fig, axes = plt.subplots(2, 3, figsize=(13, 8))
     for j, w in enumerate(WORLDS):
-        raw = pd.read_csv(f"{B}/{w}/1_gap_raw.csv")
+        raw = _consolidate_sample(pd.read_csv(f"{B}/{w}/1_gap_raw.csv"))
         top, bot = axes[0, j], axes[1, j]
         for s in BASELINES:                              # top: off-scale baselines, log y
             if not (raw.solver == s).any():

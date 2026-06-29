@@ -21,6 +21,10 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from block_a_style import apply_paper_style, WORLD_NAME
+
+apply_paper_style(whitegrid=False)  # OLD plain matplotlib look, but with the canonical font sizes
+
 HERE = os.path.dirname(__file__)
 WEGE = os.path.join(HERE, "..", "data", "MiD2023_Wege.csv")
 WORLDS_DIR = os.path.join(HERE, "..", "data", "worlds")
@@ -88,7 +92,7 @@ def world_samples(name: str, zones: list):
 def _dens(ax, world, mid, label):
     ref = np.asarray(mid, float)
     if ref.size == 0 or len(world) == 0:
-        ax.text(0.5, 0.5, "no data", ha="center", fontsize=7); ax.set_title(label, fontsize=8)
+        ax.text(0.5, 0.5, "no data", ha="center"); ax.set_title(label)
         ax.set_yticks([]); return
     hi = np.quantile(ref, 0.95)
     bins = np.linspace(0, max(hi, 0.1), 36)
@@ -97,7 +101,7 @@ def _dens(ax, world, mid, label):
             label="world")
     ax.axvline(np.median(ref), color="0.3", ls="--", lw=0.8)
     ax.axvline(np.median(world), color="C3", ls="--", lw=0.8)
-    ax.set_title(label, fontsize=8); ax.set_yticks([])
+    ax.set_title(label); ax.set_yticks([])
 
 
 def plot_world(name: str, zones: list, mid_mode, mid_pair):
@@ -109,12 +113,12 @@ def plot_world(name: str, zones: list, mid_mode, mid_pair):
         for c, z in enumerate(zones):
             _dens(axes[r, c], w_mode[z][m], mid_mode[z][m], f"{z} · {m}")
             if r == 0 and c == 0:
-                axes[r, c].legend(fontsize=7)
-    fig.suptitle(f"{name} vs MiD — leg-distance density per mode (clipped at MiD p95; "
-                 "dashed = medians) · km", y=0.997)
+                axes[r, c].legend()
+    fig.suptitle(f"{WORLD_NAME.get(name, name)} vs MiD: leg-distance density per mode "
+                 "(dashed = medians) · km", y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
-    p1 = os.path.join(WORLDS_DIR, name, "vs_mid_permode.png")
-    fig.savefig(p1, dpi=130); plt.close(fig)
+    p1 = os.path.join(WORLDS_DIR, name, "vs_mid_permode.pdf")
+    fig.savefig(p1); fig.savefig(p1[:-4] + ".png", dpi=130); plt.close(fig)
 
     # --- per (mode, home->to) for the urban study zone ---
     tos = ["work", "shop", "leisure", "other"]
@@ -124,11 +128,11 @@ def plot_world(name: str, zones: list, mid_mode, mid_pair):
             key = (m, "home", to)
             _dens(axes[r, c], w_pair["urban"].get(key, np.array([])),
                   mid_pair["urban"].get(key, []), f"{m} · home→{to}")
-    fig.suptitle(f"{name} (urban) — leg-distance density per (mode, home→activity): world vs MiD",
-                 y=0.997)
+    fig.suptitle(f"{WORLD_NAME.get(name, name)} (urban core): leg-distance density "
+                 "per (mode, home→activity)", y=0.997)
     fig.tight_layout(rect=(0, 0, 1, 0.98))
-    p2 = os.path.join(WORLDS_DIR, name, "vs_mid_pairs.png")
-    fig.savefig(p2, dpi=130); plt.close(fig)
+    p2 = os.path.join(WORLDS_DIR, name, "vs_mid_pairs.pdf")
+    fig.savefig(p2); fig.savefig(p2[:-4] + ".png", dpi=130); plt.close(fig)
     return p1, p2
 
 

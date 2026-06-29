@@ -22,6 +22,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
+from block_a_style import apply_paper_style, FS_LABEL, FS_TICK
+
+apply_paper_style()  # seaborn whitegrid + canonical font sizes (grid suppressed on the maps below)
+
 HERE = os.path.dirname(__file__)
 WORLDS_DIR = os.path.join(HERE, "..", "data", "worlds")
 DEFAULT_OUT = os.path.join(HERE, "..", "out", "world_topologies.pdf")
@@ -32,7 +36,16 @@ WORLDS = [
     ("osm_hannover", "OSM-Hannover"),
     ("two_zone", "Two-zone super-region"),
 ]
-CMAP = "YlOrRd"   # heatmap ramp: rare facilities pale (fade to white), popular ones dark red
+CMAP = "magma"   # perceptually-uniform purple->gold ramp (not the old "blood" YlOrRd)
+
+# Per-world point rendering at FULL alpha, no subsampling: density reads through the overlap of
+# many tiny dots, and a flat size ramp keeps high-usage facilities from dominating (their usage
+# reads via colour instead). two_zone is the largest/densest world, so it gets the smallest,
+# flattest style; the two city worlds get slightly larger dots with a bit more size contrast.
+RENDER = {
+    "two_zone": dict(base_size=0.10, size_gain=2.0),
+    "_default": dict(base_size=0.15, size_gain=5.0),
+}
 
 
 def _panel(ax, name: str, title: str):
@@ -46,27 +59,38 @@ def _panel(ax, name: str, title: str):
     x, y = loc["x"].to_numpy() / 1e3, loc["y"].to_numpy() / 1e3   # -> km
     v = loc["potential"].to_numpy(float)
     vis = v > 0
+    style = RENDER.get(name, RENDER["_default"])
 
     # Unvisited facilities: the latent topology backdrop (tiny, faint).
     ax.scatter(x[~vis], y[~vis], s=0.4, c="0.88", lw=0, rasterized=True, zorder=1)
 
-    # Visited facilities: size grows with sqrt(visits), colour on a log scale (heavy tail).
-    # Draw low -> high so the heavily-used (big, dark) facilities sit on top and read clearly.
+    # Visited facilities: size grows mildly with sqrt(visits); colour on a log scale clipped to
+    # [p55, p99.5] of the visit counts so the heavy tail doesn't crush the bulk into one shade and
+    # potential differences between facilities stay visible. Draw low -> high so popular sit on top.
     o = np.argsort(v[vis])
     xv, yv, vv = x[vis][o], y[vis][o], v[vis][o]
     vmax = float(vv.max())
-    sizes = 1.0 + 32.0 * np.sqrt(vv / vmax)
+    lo = max(1.0, float(np.percentile(vv, 55)))
+    hi = max(float(np.percentile(vv, 99.5)), lo * 1.01)
+    sizes = style["base_size"] + style["size_gain"] * np.sqrt(vv / vmax)
     sc = ax.scatter(xv, yv, s=sizes, c=vv, cmap=CMAP,
-                    norm=LogNorm(vmin=1.0, vmax=vmax), lw=0, alpha=0.9,
+                    norm=LogNorm(vmin=lo, vmax=hi), lw=0, alpha=0.9,
                     rasterized=True, zorder=2)
 
+    # Same-size square box for every world: undistorted geography (equal data aspect) on an
+    # equal-sided square data window, plus a forced unit box aspect so the three axes match.
+    xc, yc = (x.min() + x.max()) / 2, (y.min() + y.max()) / 2
+    half = max(x.max() - x.min(), y.max() - y.min()) / 2 * 1.03
+    ax.set_xlim(xc - half, xc + half)
+    ax.set_ylim(yc - half, yc + half)
     ax.set_aspect("equal")
+    ax.set_box_aspect(1)
+    ax.grid(False)   # geographic scatter: no whitegrid streaks across the map
     ax.set_xlabel("x [km]")
-    ax.set_title(f"{title}\n{len(loc):,} facilities · {meta.get('n_persons', 0):,} persons",
-                 fontsize=9)
+    ax.set_title(f"{title}\n{len(loc):,} facilities · {meta.get('n_persons', 0):,} persons")
     cb = ax.figure.colorbar(sc, ax=ax, fraction=0.046, pad=0.02)
-    cb.set_label("visits (log)", fontsize=8)
-    cb.ax.tick_params(labelsize=7)
+    cb.set_label("visits (log)", fontsize=FS_LABEL)
+    cb.ax.tick_params(labelsize=FS_TICK)
 
 
 def main(argv=None):

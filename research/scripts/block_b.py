@@ -349,6 +349,10 @@ _POTK = 100
 def _init_worker(world_name, combos, cal, beta, potk, world=None):
     global _W, _COMBOS, _CAL, _BETA, _POTK
     _W = world if world is not None else _load_locations_only(world_name)
+    if isinstance(combos, str):           # path to a pickled combos dict (parallel path; see sweep)
+        import pickle
+        with open(combos, "rb") as fh:
+            combos = pickle.load(fh)
     _COMBOS, _CAL, _BETA, _POTK = combos, cal, beta, potk
 
 
@@ -387,9 +391,23 @@ def sweep(world, world_name, n_persons, seed, out_dir, *, alphas, beta, pot_pool
     t0 = time.perf_counter()
     if jobs > 1:
         from concurrent.futures import ProcessPoolExecutor
-        with ProcessPoolExecutor(max_workers=jobs, initializer=_init_worker,
-                                 initargs=(world_name, combos, cal, beta, pot_pool_k)) as ex:
-            results = list(ex.map(_cell, tasks))
+        import pickle
+        # Ship `combos` (can be GBs at large N) to workers via a temp file, NOT initargs: Windows
+        # spawn pickles initargs through a pipe and DEADLOCKS past a few GB (the large-N hang).
+        # Workers load it from disk in _init_worker. Unique name (pid) so parallel sweeps don't clash.
+        combos_path = os.path.join(
+            out_dir, f"_combos_{world_name}_{'-'.join(works)}_{'-'.join(inputs)}_{os.getpid()}.pkl")
+        with open(combos_path, "wb") as fh:
+            pickle.dump(combos, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        try:
+            with ProcessPoolExecutor(max_workers=jobs, initializer=_init_worker,
+                                     initargs=(world_name, combos_path, cal, beta, pot_pool_k)) as ex:
+                results = list(ex.map(_cell, tasks))
+        finally:
+            try:
+                os.remove(combos_path)
+            except OSError:
+                pass
     else:
         _init_worker(world_name, combos, cal, beta, pot_pool_k, world=world)  # reuse loaded world
         results = [_cell(t) for t in tasks]

@@ -12,7 +12,8 @@ dependencies = [
     "networkx",
     "pyproj",
     "matplotlib",
-    "pyarrow",       # parquet I/O for baked world snapshots (worlds.save_world/load_world)
+    "pyarrow", # parquet I/O for baked world snapshots (worlds.save_world/load_world)
+    "seaborn>=0.13.2",
 ]
 
 # Install the library editable from the repo root (src-layout) so `uv sync` tracks src/ live

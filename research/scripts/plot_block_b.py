@@ -21,7 +21,9 @@ import os
 import numpy as np
 import pandas as pd
 
-from block_a_style import line  # shared house style (per-solver colour/marker/linestyle, hollow faces)
+from block_a_style import line, apply_paper_style, WORLD_NAME  # shared house style + canonical typography
+
+apply_paper_style()  # seaborn whitegrid + canonical font sizes
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "out", "block_b")
 
@@ -78,10 +80,10 @@ def _panel(ax, df, col, ylab, *, symlog=False, legend=True):
     ax.set_xscale("symlog", linthresh=0.25, linscale=0.5)
     if symlog:
         ax.set_yscale("symlog", linthresh=1.0)
-    ax.set_ylabel(ylab, fontsize=9)
+    ax.set_ylabel(ylab)
     ax.grid(alpha=0.3, which="both")
     if legend:
-        ax.legend(fontsize=7, ncol=2)
+        ax.legend(ncol=2)
 
 
 def plot_combo(df, alpha_cal, path, title):
@@ -93,15 +95,15 @@ def plot_combo(df, alpha_cal, path, title):
     for ax, (col, ylab, symlog) in zip(axes, PANELS):
         _panel(ax, df, col, ylab, symlog=symlog)
         ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
-    axes[0].legend(fontsize=7, ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
+    axes[0].legend(ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
     axes[-1].set_xlabel("alpha (potential weight)")
     axes[0].set_title(title)
     fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.savefig(path[:-4] + ".pdf"); fig.savefig(path, dpi=130)  # always emit PDF (+ PNG preview)
     plt.close(fig)
 
 
-def paper_figure(df, alpha_cal, path, *, work="anchored", inp="sampled"):
+def paper_figure(df, alpha_cal, path, *, work="anchored", inp="sampled", world=""):
     """Publication 3-panel alpha sweep for ONE survey-realistic regime (anchors known, distances
     sampled): attractiveness fit (potential-decile TV) / distance shape (Wasserstein) / per-person
     deviation. Saves both .pdf (paper) and .png (preview)."""
@@ -121,10 +123,12 @@ def paper_figure(df, alpha_cal, path, *, work="anchored", inp="sampled"):
         if ylog:
             ax.set_yscale("log")
         ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
-        ax.set_ylabel(ylab, fontsize=9)
+        ax.set_ylabel(ylab)
         ax.grid(alpha=0.3, which="both")
-    axes[0].legend(fontsize=6.3, ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
+    axes[0].legend(ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
     axes[-1].set_xlabel("attractiveness weight α")
+    if world:
+        fig.suptitle(f"{WORLD_NAME.get(world, world)} / work={work} / input={inp}")
     fig.tight_layout()
     fig.savefig(path)
     fig.savefig(path[:-4] + ".png", dpi=130)
@@ -141,10 +145,10 @@ def facet_metric(df, col, ylab, alpha_cal, path, title, *, symlog=False):
             sub = df[(df["work"] == w) & (df["input"] == i)]
             _panel(ax, sub, col, ylab if c == 0 else "", symlog=symlog, legend=(r == 0 and c == 0))
             ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
-            ax.set_title(f"work={w} / input={i}", fontsize=9)
+            ax.set_title(f"work={w} / input={i}")
     fig.suptitle(title)
     fig.tight_layout()
-    fig.savefig(path, dpi=130)
+    fig.savefig(path[:-4] + ".pdf"); fig.savefig(path, dpi=130)  # always emit PDF (+ PNG preview)
     plt.close(fig)
 
 
@@ -155,12 +159,12 @@ def plot_all(df: pd.DataFrame, world: str, out_dir: str, alpha_cal: float) -> No
             sub = df[(df["work"] == w) & (df["input"] == i)]
             if not sub.empty:
                 plot_combo(sub, alpha_cal, os.path.join(out_dir, f"sweep_{world}_{w}_{i}.png"),
-                           f"Block B — {world} / work={w} / input={i}")
+                           f"{WORLD_NAME.get(world, world)} / work={w} / input={i}")
     for col, ylab, symlog in FACET_COLS:
         if col not in df.columns or not df[col].notna().any():
             continue
         facet_metric(df, col, ylab, alpha_cal, os.path.join(out_dir, f"facet_{world}_{col}.png"),
-                     f"Block B — {world} — {ylab}", symlog=symlog)
+                     f"{WORLD_NAME.get(world, world)} — {ylab}", symlog=symlog)
 
 
 def main(argv=None):

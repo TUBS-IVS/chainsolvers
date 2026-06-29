@@ -76,7 +76,7 @@ def main():
             ax.set_title(TITLE[w]); ax.grid(alpha=0.3); ax.set_xticks(range(5)); ax.set_xticklabels(RLAB, fontsize=8)
         ax_m[j].annotate(f"drop {pid}", (0.5, 0.95), xycoords="axes fraction", fontsize=6, ha="center", va="top")
     ax_m[0].set_ylabel("MEDIAN metres above oracle / person"); ax_e[0].set_ylabel("MEAN metres above oracle\n(worst person dropped)")
-    ax_m[-1].legend(fontsize=7, ncol=2); ax_e[-1].legend(fontsize=7, ncol=2)
+    ax_m[-1].legend(fontsize=9, ncol=2); ax_e[-1].legend(fontsize=9, ncol=2)
     fig_m.tight_layout(); fig_m.savefig(f"{B}/A1_median.pdf"); plt.close(fig_m)
     fig_e.tight_layout(); fig_e.savefig(f"{B}/A1_mean_excl_outlier.pdf"); plt.close(fig_e)
     print(f"\nwrote {B}/A1_median.pdf and {B}/A1_mean_excl_outlier.pdf")
