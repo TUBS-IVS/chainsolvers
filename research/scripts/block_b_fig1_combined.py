@@ -117,8 +117,8 @@ def main(argv=None):
             legend(axes[0][0], ncol=2)
 
     fig.suptitle("Block B — attractiveness fit, correlation, and distance vs $\\alpha$", y=0.99)
-    fig.text(0.5, 0.962, "All four panels: 50,000-person full-population run, the 7 solvers feasible "
-             "at that scale (uniform sample size)", ha="center", color="#444444", fontsize=9)
+    fig.text(0.5, 0.962, "All four panels: one 50,000-person full-population run (uniform sample size; "
+             "dp_carla omitted as identical to DP-circle-R)", ha="center", color="#444444", fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     fig.savefig(os.path.join(FIG, "block_B_sweep_combined.pdf"))
     fig.savefig(os.path.join(FIG, "block_B_sweep_combined.png"), dpi=130)

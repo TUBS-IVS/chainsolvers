@@ -10,9 +10,9 @@ robust companions, and any future figure share identical styling -- import from 
 STYLE = {
     # Solvers are grouped into HUE FAMILIES by role; members share a hue but are spaced apart
     # (light->dark) so all 14 stay separable in one plot while still reading as the same family.
-    # --- CARLA family (heuristic placement) -- blues ---
-    "carla":           ("#3182bd", "^", ":"),   # darker than the old sky-blue so the dotted line reads clearly
-    "carla_sample":    ("#08519c", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample); deeper blue, still distinct from carla
+    # --- CARLA family (heuristic placement) ---
+    "carla":           ("#08519c", "^", "-"),   # solid deep blue (the incumbent heuristic)
+    "carla_sample":    ("#e6ab02", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample); solid yellow/gold (NOT orange -- distinct from dp_sample)
     # --- DP argmin family (exact / pruned) -- greens, light->dark by elaboration ---
     "dp_rings":        ("#b8e3b2", "o", "--"),
     "dp_carla":        ("#80ca80", "s", "--"),
