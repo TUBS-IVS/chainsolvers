@@ -8,31 +8,93 @@ robust companions, and any future figure share identical styling -- import from 
 
 # (colour, marker, linestyle) per solver -- consistent across EVERY figure/panel.
 STYLE = {
-    "carla":           ("#1f77b4", "^", ":"),
-    "dp_rings":        ("#ff7f0e", "o", "--"),
-    "dp_carla":        ("#2ca02c", "s", "--"),
-    "dp_rings_refine": ("#d62728", "v", "-."),
-    "dp_carla_refine": ("#9467bd", "D", "-."),
-    "dp_carla_pot":    ("#1a9850", "8", "-"),   # potential-pooled near-oracle (Block B)
-    "dp_full":         ("#8c564b", "*", "-"),
-    "rda":             ("#e377c2", "X", "--"),
-    "rda_guided":      ("#7f7f7f", "P", "-."),
-    "dp_sample":       ("#bcbd22", "p", "-"),
-    "dp_sample_capped": ("#5ab4ac", "<", "-"),  # dp_sample + candidate cap (fast variant)
-    "carla_sample":    ("#e6ab02", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample)
-    "gravity_independent": ("#a6761d", ">", "--"),  # no-coupling gravity floor (alpha-independent)
-    "dp_sample_tuned": ("#17becf", "h", "-"),
+    # Solvers are grouped into HUE FAMILIES by role; members share a hue but are spaced apart
+    # (light->dark) so all 14 stay separable in one plot while still reading as the same family.
+    # --- CARLA family (heuristic placement) -- blues ---
+    "carla":           ("#56b4e9", "^", ":"),
+    "carla_sample":    ("#2171b5", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample)
+    # --- DP argmin family (exact / pruned) -- greens, light->dark by elaboration ---
+    "dp_rings":        ("#b8e3b2", "o", "--"),
+    "dp_carla":        ("#80ca80", "s", "--"),
+    "dp_rings_refine": ("#3fa85b", "v", "-."),
+    "dp_carla_refine": ("#147e3a", "D", "-."),
+    "dp_carla_pot":    ("#004d1f", "8", "-"),   # potential-pooled near-oracle (Block B)
+    # --- Oracle -- black ---
+    "dp_full":         ("#111111", "*", "-"),
+    # --- Generative samplers -- oranges, light->dark ---
+    "dp_sample":       ("#fd9a4e", "p", "-"),
+    "dp_sample_capped": ("#cc4c02", "<", "-"),  # dp_sample + candidate cap (fast variant)
+    # --- RDA baselines -- magenta ---
+    "rda":             ("#e7298a", "X", "--"),
+    "rda_guided":      ("#ae017e", "P", "-."),
+    # --- Naive floor -- neutral gray ---
+    "gravity_independent": ("#808080", ">", "--"),  # no-coupling gravity floor (alpha-independent)
 }
 COL = {k: v[0] for k, v in STYLE.items()}  # colour lookup (bars/patches)
 _DEFAULT_STYLE = ("#333333", "o", "-")
 
+# Canonical legend/display label per solver -- MUST match the paper's Table 1 / prose names.
+# The DP family is named by candidate generation: DP (ring envelopes) -> DP-circle (+circle, n=2),
+# with suffixes -R (refinement), -pot (potential pool), -full (oracle). `line()` uses this by default,
+# so legends read like the paper; pass label= to override. LABEL.get(key, key) is the safe lookup.
+LABEL = {
+    "carla":               "CARLA",
+    "carla_sample":        "CARLA-sample",
+    "dp_rings":            "DP",
+    "dp_carla":            "DP-circle",
+    "dp_rings_refine":     "DP-R",
+    "dp_carla_refine":     "DP-circle-R",
+    "dp_carla_pot":        "DP-pot",
+    "dp_full":             "DP-full",
+    "dp_sample":           "DP-sample",
+    "dp_sample_capped":    "DP-sample (capped)",
+    "rda":                 "RDA",
+    "rda_guided":          "RDA-guided",
+    "gravity_independent": "GravityInd",
+}
+
+# Canonical display names for the worlds -- use EVERYWHERE a world appears in a title/label so the
+# raw keys ("two_zone") never leak. WORLD_NAME.get(key, key) is the safe lookup.
+WORLD_NAME = {
+    "gauss_hannover": "Gauss-Hannover",
+    "osm_hannover": "OSM-Hannover",
+    "two_zone": "Two-zone",
+}
+
+# Canonical typography for EVERY paper figure -- one scheme so all graphs match. Call
+# apply_paper_style() once at the top of each figure script (before plotting); per-call
+# fontsize= overrides are then unnecessary and should be removed so this governs.
+# Headers (per-plot title + suptitle) are deliberately the largest -- the world-name panel
+# headers (e.g. "Gauss-Hannover", "Two-zone") read clearly; sized so the longest still fits.
+FS_LEGEND, FS_LABEL, FS_TICK, FS_TITLE, FS_SUPTITLE = 9, 11, 9, 14, 14
+
+
+def apply_paper_style(whitegrid=True):
+    """Canonical font sizes (legend 9 / labels 11 / ticks 9 / title 12 / suptitle 13) for every
+    figure. With whitegrid=True (default) also applies the seaborn whitegrid theme; pass
+    whitegrid=False to keep plain matplotlib styling (the 'old' look) while still getting the
+    consistent sizes -- used by the vs-MiD distribution figures. Solver colours stay explicit via
+    STYLE, so the seaborn palette is irrelevant. Idempotent."""
+    import matplotlib as mpl
+    if whitegrid:
+        import seaborn as sns
+        sns.set_theme(style="whitegrid")
+    mpl.rcParams.update({
+        "figure.facecolor": "white", "savefig.facecolor": "white", "savefig.bbox": "tight",
+        "axes.titlesize": FS_TITLE, "axes.titleweight": "regular",
+        "axes.labelsize": FS_LABEL,
+        "xtick.labelsize": FS_TICK, "ytick.labelsize": FS_TICK,
+        "legend.fontsize": FS_LEGEND, "legend.title_fontsize": FS_LEGEND, "legend.loc": "best",
+        "figure.titlesize": FS_SUPTITLE,
+    })
+
 
 def line(ax, x, y, solver, *, ms=5, yerr=None, capsize=2, label=None, **kw):
     """House-style line for `solver`: per-solver colour+marker+linestyle, hollow faces.
-    Pass yerr for an errorbar; label defaults to the solver name."""
+    Pass yerr for an errorbar; label defaults to the canonical paper name (LABEL)."""
     c, mk, ls = STYLE.get(solver, _DEFAULT_STYLE)
     common = dict(color=c, marker=mk, ls=ls, ms=ms, lw=1.5, mfc="none", mew=1.3,
-                  label=solver if label is None else label)
+                  label=LABEL.get(solver, solver) if label is None else label)
     if yerr is not None:
         ax.errorbar(x, y, yerr=yerr, capsize=capsize, **common, **kw)
     else:
