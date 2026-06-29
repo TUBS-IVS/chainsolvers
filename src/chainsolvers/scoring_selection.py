@@ -169,6 +169,28 @@ class Selector:
         # non-finite remain 0
         return out
 
+    @staticmethod
+    def _choice_no_replace(rng, a, p, rank_scores, k):
+        """``rng.choice(a, size=k, p=p, replace=False)`` hardened against a degenerate ``p`` with
+        fewer than ``k`` non-zero entries (numpy raises 'Fewer non-zero entries in p than size').
+        On the normal path it is the *identical* call (same RNG draws / reproducibility). In the
+        degenerate case it samples every positive-probability candidate, then fills the remainder
+        deterministically with the highest-``rank_scores`` zero-probability candidates -- so a
+        collapsed score distribution yields fewer-than-usual genuine draws topped up by best score,
+        instead of crashing the whole placement (the large-N CARLA failure mode)."""
+        p = np.asarray(p, dtype=float)
+        if int((p > 0).sum()) >= k:
+            return rng.choice(a, size=k, p=p, replace=False)
+        pool = np.arange(a) if np.isscalar(a) else np.asarray(a)
+        pos = np.flatnonzero(p > 0)
+        chosen = rng.permutation(pos) if pos.size else np.empty(0, dtype=np.intp)
+        need = k - chosen.size
+        if need > 0:
+            zero = np.flatnonzero(p <= 0)
+            rs = np.asarray(rank_scores, dtype=float)
+            chosen = np.concatenate([chosen, zero[np.argsort(rs[zero])[::-1][:need]]])
+        return pool[np.asarray(chosen, dtype=np.intp)[:k]]
+
     # ---------- selection ----------
     @staticmethod
     def select(
@@ -203,7 +225,7 @@ class Selector:
         if strategy == "monte_carlo":
             # shift+scale -> probs
             p = Selector._normalized_weights(scores, where="monte_carlo")
-            idx = rng.choice(scores.size, size=num_candidates, p=p, replace=False)
+            idx = Selector._choice_no_replace(rng, scores.size, p, scores, num_candidates)
 
         elif strategy == "top_n":
             # pure ranking uses raw scores (normalization not needed)
@@ -221,7 +243,7 @@ class Selector:
                 rest = np.setdiff1d(np.arange(scores.size, dtype=np.intp), top_idx, assume_unique=False)
                 if rest.size > 0:
                     p = Selector._normalized_weights(scores[rest], where="mixed_rest")
-                    mc_idx = rng.choice(rest, size=num_mc, p=p, replace=False)
+                    mc_idx = Selector._choice_no_replace(rng, rest, p, scores[rest], num_mc)
                     idx = np.concatenate([top_idx[:num_top], mc_idx])
                 else:
                     idx = top_idx[:num_candidates]
@@ -248,7 +270,7 @@ class Selector:
                 w[~np.isfinite(w)] = 0.0
                 tot = w.sum()
                 p = w / tot if (np.isfinite(tot) and tot > 0.0) else np.full(s.size, 1.0 / s.size)
-            idx = rng.choice(scores.size, size=num_candidates, p=p, replace=False)
+            idx = Selector._choice_no_replace(rng, scores.size, p, scores, num_candidates)
 
         elif strategy == "spatial_downsample":
             assert coords is not None, "coords required for spatial_downsample"
