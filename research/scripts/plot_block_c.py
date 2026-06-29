@@ -19,7 +19,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from block_a_style import COL, line, apply_paper_style, WORLD_NAME
+from block_a_style import COL, line, apply_paper_style, WORLD_NAME, LABEL, legend
 
 apply_paper_style()  # seaborn whitegrid + canonical font sizes
 
@@ -129,9 +129,9 @@ def plot_headline(df, scenario, world, out_dir, raw=None):
             label="true (DGP)", zorder=6)
 
     # generative protagonist + flat floor
-    plot_set = [(GEN_REP, "informed", "-", "o", f"{GEN_REP}: informed"),
-                (GEN_REP, "no_attr", ":", "^", f"{GEN_REP}: no attr.\\ ($\\alpha{{=}}0$)"),
-                ("carla_sample", "informed", "-", "d", "carla\\_sample: informed")]
+    plot_set = [(GEN_REP, "informed", "-", "o", f"{LABEL.get(GEN_REP, GEN_REP)}: informed"),
+                (GEN_REP, "no_attr", ":", "^", f"{LABEL.get(GEN_REP, GEN_REP)}: no attr.\\ ($\\alpha{{=}}0$)"),
+                ("carla_sample", "informed", "-", "d", f"{LABEL.get('carla_sample', 'carla_sample')}: informed")]
     for solver, cond, ls, mk, lab in plot_set:
         s = _sel(df, solver, cond)
         if len(s):
@@ -147,20 +147,20 @@ def plot_headline(df, scenario, world, out_dir, raw=None):
         if len(s):
             x, y = _yval(s, scenario); c = COL.get(rep, "#8c564b")
             ax.plot(x, y, color=c, ls="-.", marker="*", ms=8, mfc="none", lw=1.7,
-                    label=f"{rep} argmin (w={w:g})", zorder=4)
+                    label=f"{LABEL.get(rep, rep)} argmin (w={w:g})", zorder=4)
             if do_band:
                 _draw_band(ax, levels, _band(raw, rep, f"w{w:g}", w, base, levels), c)
     tc = _sel(df, rep, "truedist")                      # argmin fed TRUE distances (control)
     if len(tc):
         x, y = _yval(tc, scenario)
         ax.plot(x, y, color="#444", ls="--", marker="x", ms=6, lw=1.4,
-                label=f"{rep} argmin, true dist.\\ (control)", zorder=3)
+                label=f"{LABEL.get(rep, rep)} argmin, true dist.\\ (control)", zorder=3)
 
     ax.set(xlabel="attractiveness multiplier $b$" if scenario == ATTRACT else "mixed-use $m$",
            ylabel=_ylab(scenario),
            title=f"Attractiveness-shift forecast — {WORLD_NAME.get(world, world)}" if scenario == ATTRACT
                  else f"Mixed-use forecast — {WORLD_NAME.get(world, world)}")
-    ax.grid(alpha=0.3); ax.legend(framealpha=0.92, loc="best")
+    ax.grid(alpha=0.3); legend(ax, framealpha=0.92, loc="best")
     _save(fig, os.path.join(out_dir, _name("C1_headline", scenario, world))); plt.close(fig)
 
 
@@ -180,10 +180,10 @@ def plot_weight_family(df, scenario, world, out_dir):
     g = _sel(df, GEN_REP, "informed")
     if len(g):
         ax.plot(*_yval(g, scenario), color="crimson", lw=2.4, ls="--", marker="D", ms=5,
-                mfc="none", label=f"{GEN_REP} informed (calibrated)", zorder=5)
+                mfc="none", label=f"{LABEL.get(GEN_REP, GEN_REP)} informed (calibrated)", zorder=5)
     ax.set(xlabel="attractiveness multiplier $b$", ylabel=_ylab(scenario),
            title=f"No constant argmin weight reproduces the shape --- {WORLD_NAME.get(world, world)}")
-    ax.grid(alpha=0.3); ax.legend(ncol=2, framealpha=0.92, loc="best")
+    ax.grid(alpha=0.3); legend(ax, ncol=2, framealpha=0.92, loc="best")
     _save(fig, os.path.join(out_dir, _name("C2_weightfamily", scenario, world))); plt.close(fig)
 
 
@@ -197,23 +197,23 @@ def plot_abc_tie(df, scenario, world, out_dir):
             sub = _argw(df, s, w).sort_values("level")
             if len(sub) and s != rep:
                 gap = sub["combined_cost"].to_numpy() - oracle.reindex(sub["level"]).to_numpy()
-                line(ax[0], sub["level"], gap, s, label=s)
+                line(ax[0], sub["level"], gap, s, label=LABEL.get(s, s))
         ax[0].axhline(0, color="k", lw=0.8, ls=":")
     ax[0].set(xlabel="$b$", ylabel=f"objective gap vs {rep}", title="A: optimization (argmin $\\approx$0)")
     for s, cond in [(GEN_REP, "informed"), (rep, f"w{w:g}" if w is not None else None)]:
         sub = _sel(df, s, cond).sort_values("level") if cond else df.iloc[:0]
         if len(sub):
-            line(ax[1], sub["level"], sub["pot_decile_tv"], s, label=f"{s}:{cond}")
+            line(ax[1], sub["level"], sub["pot_decile_tv"], s, label=f"{LABEL.get(s, s)}:{cond}")
     ax[1].set(xlabel="$b$", ylabel="pot\\_decile\\_tv (lower=better)", title="B: fit (reproduce today)")
     t = _sel(df, "true", "true")
     ax[2].plot(*_yval(t, scenario), color="black", lw=2.2, marker="o", mfc="black", ms=5, label="true")
     for s, cond in [(GEN_REP, "informed"), (rep, f"w{w:g}" if w is not None else None)]:
         sub = _sel(df, s, cond) if cond else df.iloc[:0]
         if len(sub):
-            line(ax[2], *_yval(sub, scenario), s, label=f"{s}:{cond}")
+            line(ax[2], *_yval(sub, scenario), s, label=f"{LABEL.get(s, s)}:{cond}")
     ax[2].set(xlabel="$b$", ylabel=_ylab(scenario), title="C: forecast (predict shift)")
     for a in ax:
-        a.grid(alpha=0.3); a.legend()
+        a.grid(alpha=0.3); legend(a)
     _save(fig, os.path.join(out_dir, _name("C3_abc_tie", scenario, world))); plt.close(fig)
 
 
@@ -233,7 +233,7 @@ def plot_true_curves(dfs, scenario, out_dir):
     ax[0].set(xlabel=xl, ylabel="TRUE median secondary distance (m)", title=f"TRUE outcome --- {scenario}")
     ax[1].set(xlabel=xl, ylabel="% trips local (<1.2 km)", title="local-trip share")
     for a in ax:
-        a.grid(alpha=0.3); a.legend()
+        a.grid(alpha=0.3); legend(a)
     _save(fig, os.path.join(out_dir, f"DECISION_truecurves_{scenario}")); plt.close(fig)
 
 
@@ -267,7 +267,7 @@ def plot_distance(df, scenario, world, out_dir):
     ax[1].set(xlabel="attractiveness multiplier $b$", ylabel="distance Wasserstein vs TRUE (m)",
               title="distance fit to the counterfactual")
     for a in ax:
-        a.grid(alpha=0.3); a.legend(fontsize=8)
+        a.grid(alpha=0.3); legend(a, fontsize=8)
     _save(fig, os.path.join(out_dir, _name("C4_distance", scenario, world))); plt.close(fig)
 
 

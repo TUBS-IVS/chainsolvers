@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from block_a_style import COL, line as _line, apply_paper_style, WORLD_NAME  # noqa: F401
+from block_a_style import COL, line as _line, apply_paper_style, WORLD_NAME, legend  # noqa: F401
 
 apply_paper_style()
 TITLE = WORLD_NAME
@@ -73,7 +73,7 @@ def a1_combined():
             ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB); ax.grid(alpha=0.3, which="both")
     axes[0, 0].set_ylabel("metres above oracle / person (log)\nbaselines")
     axes[1, 0].set_ylabel("metres above oracle / person\nplacement family")
-    axes[0, -1].legend(); axes[1, -1].legend(ncol=2)
+    legend(axes[0, -1]); legend(axes[1, -1], ncol=2)
     fig.tight_layout(); fig.savefig(f"{B}/A1_gap_combined.pdf"); plt.close(fig)
     print("wrote A1_gap_combined.pdf")
 
@@ -114,7 +114,7 @@ def a2_combined():
             axes[i, j].grid(alpha=0.3, which="both")
     axes[0, 0].set_ylabel("mean deviation [m] (log)\nall methods")
     axes[1, 0].set_ylabel("mean deviation [m]\nplacement family (linear)")
-    axes[0, -1].legend(); axes[1, -1].legend()
+    legend(axes[0, -1]); legend(axes[1, -1])
     fig.tight_layout(); fig.savefig(f"{B}/A2_frontier_combined.pdf"); plt.close(fig)
     print("wrote A2_frontier_combined.pdf")
 
@@ -146,7 +146,7 @@ def a8_combined():
             axes[nrow - 1, j].set_xlabel("facilities per type N (log)")
         axes[gr, 0].set_ylabel(f"{TITLE[w]}\ngap above oracle [m]")
         axes[rr, 0].set_ylabel("ms / person (log)")
-    axes[0, -1].legend(); axes[1, -1].legend()
+    legend(axes[0, -1]); legend(axes[1, -1])
     fig.tight_layout(); fig.savefig(f"{B}/A8_density_length_combined.pdf"); plt.close(fig)
     print("wrote A8_density_length_combined.pdf")
 

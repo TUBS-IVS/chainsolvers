@@ -21,7 +21,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from block_a_style import line, apply_paper_style, WORLD_NAME  # shared house style + canonical typography
+from block_a_style import line, apply_paper_style, WORLD_NAME, legend  # shared house style + canonical typography
 
 apply_paper_style()  # seaborn whitegrid + canonical font sizes
 
@@ -29,7 +29,11 @@ OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "out", "block_b")
 
 # Block-B draw order; per-solver styling comes from the shared block_a_style module so Block A and
 # Block B figures match (do not redefine colours here).
-ORDER = ["dp_full", "dp_carla_pot", "dp_carla", "dp_carla_refine", "carla",
+# dp_carla (DP-circle) is intentionally OMITTED in Block B: under the combined objective its curve is
+# identical to dp_carla_refine (DP-circle-R) -- refinement is a no-op for these segments, so it only
+# overplots and clutters the legend. DP-circle-R is kept as the distance-argmin representative.
+# (dp_carla stays in Block A, where carla-vs-DP-circle isolates heuristic search vs exact DP.)
+ORDER = ["dp_full", "dp_carla_pot", "dp_carla_refine", "carla",
          "dp_sample", "dp_sample_capped", "carla_sample", "gravity_independent", "rda", "rda_guided"]
 
 # (column, y-label, symlog?). PANELS = the 3 stacked panels in the per-combo plot;
@@ -69,7 +73,7 @@ def add_eff_gap(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat(out, ignore_index=True)
 
 
-def _panel(ax, df, col, ylab, *, symlog=False, legend=True):
+def _panel(ax, df, col, ylab, *, symlog=False, show_legend=True):
     for s in ORDER:
         d = df[(df["solver"] == s) & df[col].notna()].sort_values("alpha")
         if d.empty:
@@ -82,8 +86,8 @@ def _panel(ax, df, col, ylab, *, symlog=False, legend=True):
         ax.set_yscale("symlog", linthresh=1.0)
     ax.set_ylabel(ylab)
     ax.grid(alpha=0.3, which="both")
-    if legend:
-        ax.legend(ncol=2)
+    if show_legend:
+        legend(ax, ncol=2)
 
 
 def plot_combo(df, alpha_cal, path, title):
@@ -95,7 +99,7 @@ def plot_combo(df, alpha_cal, path, title):
     for ax, (col, ylab, symlog) in zip(axes, PANELS):
         _panel(ax, df, col, ylab, symlog=symlog)
         ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
-    axes[0].legend(ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
+    legend(axes[0], ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
     axes[-1].set_xlabel("alpha (potential weight)")
     axes[0].set_title(title)
     fig.tight_layout()
@@ -125,7 +129,7 @@ def paper_figure(df, alpha_cal, path, *, work="anchored", inp="sampled", world="
         ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
         ax.set_ylabel(ylab)
         ax.grid(alpha=0.3, which="both")
-    axes[0].legend(ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
+    legend(axes[0], ncol=2, title=f"calibrated α={alpha_cal:.2f} (dashed)")
     axes[-1].set_xlabel("attractiveness weight α")
     if world:
         fig.suptitle(f"{WORLD_NAME.get(world, world)} / work={work} / input={inp}")
@@ -143,7 +147,7 @@ def facet_metric(df, col, ylab, alpha_cal, path, title, *, symlog=False):
         for c, i in enumerate(INPUTS):
             ax = np.atleast_2d(axes)[r][c]
             sub = df[(df["work"] == w) & (df["input"] == i)]
-            _panel(ax, sub, col, ylab if c == 0 else "", symlog=symlog, legend=(r == 0 and c == 0))
+            _panel(ax, sub, col, ylab if c == 0 else "", symlog=symlog, show_legend=(r == 0 and c == 0))
             ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
             ax.set_title(f"work={w} / input={i}")
     fig.suptitle(title)

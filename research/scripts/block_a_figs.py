@@ -16,7 +16,7 @@ B = "research/out/block_a"
 
 # House style (per-solver colour+marker+linestyle, hollow faces) lives in block_a_style so Block A,
 # Block B, the robust companions, and any future figure share it. Import; do not redefine.
-from block_a_style import STYLE, COL, line as _line, apply_paper_style, WORLD_NAME  # noqa: E402,F401
+from block_a_style import STYLE, COL, line as _line, apply_paper_style, WORLD_NAME, legend  # noqa: E402,F401
 
 apply_paper_style()  # seaborn whitegrid + canonical font sizes for the whole figure set
 TITLE = WORLD_NAME   # shared display names (consistent across every figure)
@@ -63,7 +63,7 @@ def a1(ax, w):
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person")
     if w == WORLDS[-1]:
-        ax.legend(ncol=2)
+        legend(ax, ncol=2)
 
 
 def a1b(ax, w):
@@ -76,7 +76,7 @@ def a1b(ax, w):
     ax.set_yscale("log"); ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB)
     if w == WORLDS[0]:
         ax.set_ylabel("metres above oracle / person (log)")
-        ax.legend()
+        legend(ax)
 
 
 def a2(ax, w, exclude=(), logscale=True):
@@ -107,7 +107,7 @@ def a2(ax, w, exclude=(), logscale=True):
     if w == WORLDS[0]:
         ax.set_ylabel("mean deviation [m] (log)" if logscale else "mean deviation [m]")
     if w == WORLDS[-1]:
-        ax.legend()
+        legend(ax)
 
 
 def a2_norda(ax, w):  # additional zoomed frontier: rda dropped so the placement family's axes expand
@@ -127,7 +127,7 @@ def a3(ax, w):
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
     if w == WORLDS[-1]:
-        ax.legend()
+        legend(ax)
 
 
 def a5(ax, w):
@@ -139,7 +139,7 @@ def a5(ax, w):
     if w == WORLDS[0]:
         ax.set_ylabel("ms / person (log)")
     if w == WORLDS[-1]:
-        ax.legend(ncol=2)
+        legend(ax, ncol=2)
 
 
 def a6(ax, w):
@@ -163,7 +163,7 @@ def a7():  # DEPRECATED: A7 (density-trade) is superseded by A8 (density x lengt
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")
         axes[1, j].set_yscale("log"); axes[1, j].set_xlabel("facilities per type N (log)")
     axes[0, 0].set_ylabel("gap above oracle [m]"); axes[1, 0].set_ylabel("ms / person (log)")
-    axes[0, 2].legend()
+    legend(axes[0, 2])
     fig.tight_layout(); fig.savefig(f"{B}/A7_density_trade.pdf"); plt.close(fig); print("wrote A7_density_trade.pdf")
 
 
@@ -188,7 +188,7 @@ def a8(w):
             axes[i, j].set_xscale("log"); axes[i, j].grid(alpha=0.3, which="both")
         axes[1, j].set_yscale("log"); axes[1, j].set_xlabel("facilities per type N (log)")
     axes[0, 0].set_ylabel("gap above oracle [m]\n(placement family)"); axes[1, 0].set_ylabel("ms / person (log)")
-    axes[0, -1].legend(); axes[1, -1].legend()
+    legend(axes[0, -1]); legend(axes[1, -1])
     fig.tight_layout(); fig.savefig(f"{B}/A8_density_length_{w}.pdf"); plt.close(fig)
     print(f"wrote A8_density_length_{w}.pdf")
 

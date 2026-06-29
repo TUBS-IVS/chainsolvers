@@ -11,8 +11,8 @@ STYLE = {
     # Solvers are grouped into HUE FAMILIES by role; members share a hue but are spaced apart
     # (light->dark) so all 14 stay separable in one plot while still reading as the same family.
     # --- CARLA family (heuristic placement) -- blues ---
-    "carla":           ("#56b4e9", "^", ":"),
-    "carla_sample":    ("#2171b5", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample)
+    "carla":           ("#3182bd", "^", ":"),   # darker than the old sky-blue so the dotted line reads clearly
+    "carla_sample":    ("#08519c", "d", "-"),   # CARLA greedy-ancestral sampler (ablation vs dp_sample); deeper blue, still distinct from carla
     # --- DP argmin family (exact / pruned) -- greens, light->dark by elaboration ---
     "dp_rings":        ("#b8e3b2", "o", "--"),
     "dp_carla":        ("#80ca80", "s", "--"),
@@ -66,7 +66,7 @@ WORLD_NAME = {
 # fontsize= overrides are then unnecessary and should be removed so this governs.
 # Headers (per-plot title + suptitle) are deliberately the largest -- the world-name panel
 # headers (e.g. "Gauss-Hannover", "Two-zone") read clearly; sized so the longest still fits.
-FS_LEGEND, FS_LABEL, FS_TICK, FS_TITLE, FS_SUPTITLE = 9, 11, 9, 14, 14
+FS_LEGEND, FS_LABEL, FS_TICK, FS_TITLE, FS_SUPTITLE = 11, 11, 9, 14, 14
 
 
 def apply_paper_style(whitegrid=True):
@@ -99,3 +99,30 @@ def line(ax, x, y, solver, *, ms=5, yerr=None, capsize=2, label=None, **kw):
         ax.errorbar(x, y, yerr=yerr, capsize=capsize, **common, **kw)
     else:
         ax.plot(x, y, **common, **kw)
+
+
+# Canonical legend order = the STYLE key order: family-grouped (CARLA blues, DP greens, oracle,
+# samplers, RDA, floor) with the DP block in the paper's Table-1 order (DP, DP-circle, DP-R,
+# DP-circle-R, DP-pot). legend() reorders entries to this REGARDLESS of draw order.
+_LEGEND_RANK = {k: i for i, k in enumerate(STYLE)}
+
+
+def legend(ax, **kw):
+    """ax.legend() but entries reordered by canonical family order (STYLE key order). Labels are
+    matched to a solver via LABEL -- exact first, then the longest display-name prefix (so composite
+    labels like 'DP-sample: informed' or 'DP-circle-R argmin' still sort into their family).
+    Unmatched labels (e.g. 'true (DGP)') keep their original order at the end. Pass any ax.legend kw."""
+    handles, labels = ax.get_legend_handles_labels()
+    inv = {disp: key for key, disp in LABEL.items()}
+    disp_by_len = sorted(inv, key=len, reverse=True)
+
+    def rank(lbl, i):
+        if lbl in inv:
+            return (_LEGEND_RANK.get(inv[lbl], 10**6), i)
+        for disp in disp_by_len:
+            if lbl.startswith(disp):
+                return (_LEGEND_RANK.get(inv[disp], 10**6), i)
+        return (10**6 + 1, i)
+
+    idx = sorted(range(len(labels)), key=lambda i: rank(labels[i], i))
+    return ax.legend([handles[i] for i in idx], [labels[i] for i in idx], **kw)
