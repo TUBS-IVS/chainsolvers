@@ -11,6 +11,7 @@ Two paper figures that each merge what used to be separate floats:
 Kept in its own module so importing it does NOT trigger block_a_figs.py's module-level
 panel() side effects (which regenerate the whole single-figure set)."""
 import os
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -20,6 +21,50 @@ apply_paper_style()
 TITLE = WORLD_NAME
 WORLDS = ["gauss_hannover", "osm_hannover", "two_zone"]
 B = "research/out/block_a"
+
+PLACEMENT = ["carla", "dp_rings", "dp_carla", "dp_rings_refine", "dp_carla_refine"]  # dp_full = oracle (0)
+BASELINES = ["rda", "carla_sample", "dp_sample", "dp_sample_tuned"]  # off-scale refs (log y)
+REGIMES = ["true", "dist_noise=0.15", "dist_sampled", "anchor_disturb=1000m", "anchor_remove"]
+RLAB = ["true", "noise", "sampled", "anchor\njitter", "anchor\nremove"]
+
+
+def _gap(raw, s, reg):
+    """Mean and SE of (solver - oracle) per-person gap in regime reg (mirrors block_a_figs._gap)."""
+    orc = raw[(raw.solver == "dp_full") & (raw.regime == reg)].set_index("unique_person_id")["dev_m"]
+    d = raw[(raw.solver == s) & (raw.regime == reg)].set_index("unique_person_id")["dev_m"]
+    if d.empty:
+        return (np.nan, np.nan)
+    g = (d - orc).to_numpy(float); ok = ~np.isnan(g)
+    return (np.nanmean(g), np.nanstd(g[ok], ddof=1) / np.sqrt(ok.sum()) if ok.sum() > 1 else np.nan)
+
+
+def a1_combined():
+    """Gap-to-oracle across the difficulty axes, all three worlds (columns): the placement
+    family on linear axes (top row, the headline) and the off-scale baselines on log axes
+    (bottom row). Merges the former two separate floats into one figure."""
+    fig, axes = plt.subplots(2, 3, figsize=(13, 8))
+    for j, w in enumerate(WORLDS):
+        raw = pd.read_csv(f"{B}/{w}/1_gap_raw.csv")
+        top, bot = axes[0, j], axes[1, j]
+        top.axhline(0, color="0.6", lw=0.8, ls="--", zorder=0)
+        for s in PLACEMENT:
+            m = [_gap(raw, s, r)[0] for r in REGIMES]
+            e = [_gap(raw, s, r)[1] for r in REGIMES]
+            _line(top, range(len(REGIMES)), m, s, yerr=e)
+        for s in BASELINES:
+            if not (raw.solver == s).any():
+                continue
+            m = [_gap(raw, s, r)[0] for r in REGIMES]
+            _line(bot, range(len(REGIMES)), m, s)
+        bot.set_yscale("log")
+        top.set_title(TITLE[w])
+        for ax in (top, bot):
+            ax.set_xticks(range(len(REGIMES))); ax.set_xticklabels(RLAB); ax.grid(alpha=0.3, which="both")
+    axes[0, 0].set_ylabel("metres above oracle / person\nplacement family")
+    axes[1, 0].set_ylabel("metres above oracle / person (log)\nbaselines")
+    axes[0, -1].legend(ncol=2); axes[1, -1].legend()
+    fig.tight_layout(); fig.savefig(f"{B}/A1_gap_combined.pdf"); plt.close(fig)
+    print("wrote A1_gap_combined.pdf")
 
 
 def _frontier(ax, w, exclude=(), logscale=True):
@@ -96,6 +141,7 @@ def a8_combined():
 
 
 if __name__ == "__main__":
+    a1_combined()
     a2_combined()
     a8_combined()
     print("DONE")
