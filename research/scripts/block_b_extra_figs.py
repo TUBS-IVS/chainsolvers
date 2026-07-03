@@ -20,7 +20,7 @@ FIG = os.path.join(os.path.dirname(__file__), "..", "..", "paper", "figures")   
 df = pd.read_csv(os.path.join(B, "alpha_sweep_two_zone.csv"))
 cal = float(df["alpha_cal"].iloc[0])
 df = P.add_eff_gap(df)
-P.facet_metric(df, "pot_decile_tv", "potential-mass-decile fit TV (lower=better)", cal,
+P.facet_metric(df, "pot_decile_tv", "attractiveness fit (potential-decile TV, lower=better)", cal,
                os.path.join(FIG, "block_B_facet_decile_two_zone.png"),
-               f"{WORLD_NAME['two_zone']} — attractiveness fit (decile TV) across regimes")
+               f"{WORLD_NAME['two_zone']}: attractiveness fit across regimes")
 print("wrote block_B_facet_decile_two_zone.pdf")

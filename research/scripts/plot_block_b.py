@@ -149,7 +149,9 @@ def facet_metric(df, col, ylab, alpha_cal, path, title, *, symlog=False):
             sub = df[(df["work"] == w) & (df["input"] == i)]
             _panel(ax, sub, col, ylab if c == 0 else "", symlog=symlog, show_legend=(r == 0 and c == 0))
             ax.axvline(alpha_cal, color="k", ls="--", lw=1, alpha=0.6)
-            ax.set_title(f"work={w} / input={i}")
+            ax.set_title(f"work {w}, {i} distances")
+            if r == len(WORKS) - 1:
+                ax.set_xlabel("attractiveness weight α")
     fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(path[:-4] + ".pdf"); fig.savefig(path, dpi=130)  # always emit PDF (+ PNG preview)
