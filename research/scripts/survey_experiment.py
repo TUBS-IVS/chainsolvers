@@ -2,6 +2,13 @@
 """Survey-realistic experiment: super-region ground truth -> random survey -> two input
 modes -> all solvers -> validate against ground truth.
 
+NOTE (2026-07-03): NOT part of the paper. The former paper subsection built on this
+(7.3, "A survey-realistic pipeline") was removed: this harness runs on its own ad-hoc
+build_topology world (not the three calibrated worlds), persists no outputs (console
+only), and no longer runs the RDA the old text quoted. Kept as a standalone demo of
+the survey primitives (chainsolvers_eval.survey); rebase onto the baked worlds and
+persist results before citing it anywhere.
+
   Track 1 (direct chains): run argmin solvers on the SURVEYED persons' observed distances;
            score mean deviation + %gap to the true optimum (dp_full) + recovery.
   Track 3 (distance distribution): derive a per-mode distance distribution from the survey,
